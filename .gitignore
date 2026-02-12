@@ -1,0 +1,9 @@
+# Foundry build artifacts
+cache/
+out/
+
+# Dependencies (installed via forge install)
+lib/
+
+# Python
+__pycache__/
