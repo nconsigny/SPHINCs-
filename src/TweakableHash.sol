@@ -65,24 +65,21 @@ library TweakableHash {
         }
     }
 
-    /// @notice Message hash: H_msg(seed, root, R, message, chainId, address) for digest generation
+    /// @notice Message hash: H_msg(seed, root, R, message) for digest generation
     /// @dev Produces a full 256-bit hash used for extracting FORS/PORS indices + hypertree index
-    ///      Includes chainId and contract address to prevent cross-chain replay attacks
     function hMsg(
         bytes32 seed,
         bytes32 root,
         bytes32 R,
         bytes32 message
-    ) internal view returns (bytes32 digest) {
+    ) internal pure returns (bytes32 digest) {
         assembly ("memory-safe") {
             let m := mload(0x40)
             mstore(m, seed)
             mstore(add(m, 0x20), root)
             mstore(add(m, 0x40), R)
             mstore(add(m, 0x60), message)
-            mstore(add(m, 0x80), chainid())
-            mstore(add(m, 0xA0), address())
-            digest := keccak256(m, 0xC0)
+            digest := keccak256(m, 0x80)
         }
     }
 
