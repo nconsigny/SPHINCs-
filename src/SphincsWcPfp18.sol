@@ -110,6 +110,10 @@ contract SphincsWcPfp18 {
         uint256 count = 0;
         uint256 nonce = 0;
 
+        // Bitmap for O(K) duplicate detection: 8192 leaves needs 256 uint256 words
+        uint256 bitmapSize = (totalLeaves + 255) >> 8;
+        uint256[] memory bitmap = new uint256[](bitmapSize);
+
         while (count < K) {
             bytes32 extended;
             assembly ("memory-safe") {
@@ -122,11 +126,12 @@ contract SphincsWcPfp18 {
             for (uint256 b = 0; b + TREE_HEIGHT <= 256 && count < K; b += TREE_HEIGHT) {
                 uint256 candidate = (bits >> b) & ((1 << TREE_HEIGHT) - 1);
                 if (candidate < totalLeaves) {
-                    bool dup = false;
-                    for (uint256 j = 0; j < count; j++) {
-                        if (indices[j] == candidate) { dup = true; break; }
-                    }
-                    if (!dup) {
+                    uint256 wordIdx = candidate >> 8;
+                    uint256 bitIdx = candidate & 0xFF;
+                    uint256 mask = 1 << bitIdx;
+
+                    if (bitmap[wordIdx] & mask == 0) {
+                        bitmap[wordIdx] |= mask;
                         indices[count] = candidate;
                         count++;
                     }

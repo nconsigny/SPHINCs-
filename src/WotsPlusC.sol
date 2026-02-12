@@ -28,6 +28,7 @@ library WotsPlusC {
         Params memory params
     ) internal pure returns (bytes32 wotsPk) {
         require(sigma.length == params.l, "WOTS+C: wrong sigma length");
+        require(count < 2**32, "WOTS+C: count exceeds limit");
 
         // Step 1: Compute constrained digest d = Th(seed, adrs*, msgHash || count)
         bytes32 d;
