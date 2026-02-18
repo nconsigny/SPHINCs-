@@ -424,7 +424,7 @@ def eprint(*args, **kwargs):
 #  Full Signing
 # ============================================================
 
-def sign_variant(variant_name, message_int):
+def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=None):
     cfg = VARIANTS[variant_name]
     d = cfg["d"]
     k = cfg["k"]
@@ -435,25 +435,18 @@ def sign_variant(variant_name, message_int):
     h = cfg["h"]
     sig_size = cfg["sig_size"]
 
-    seed, sk_seed = derive_keys(message_int)
+    if seed is None or sk_seed is None:
+        seed, sk_seed = derive_keys(message_int)
     eprint(f"Signing {variant_name}: scheme={scheme}, h={h}, d={d}, k={k}, a={a}")
     eprint(f"  seed = {hex(seed)[:18]}...")
 
-    # ================================================================
-    # STEP 1: Build the full hypertree to compute pkRoot
-    # ================================================================
-    # For d=2: layer 0 has 512 subtrees, layer 1 has 1 subtree (512 leaves = layer-0 roots).
-    # Total layer-0 subtrees to build: 512 (each has 512 WOTS keypairs).
-    # This is expensive but necessary for correctness.
-    #
-    # For d=3: layer 0 has 2^18 subtrees — too many. Use shortcut for d=3.
-
-    if d == 2:
-        pk_root = _build_hypertree_d2(seed, sk_seed, subtree_h)
-    elif d == 3:
-        pk_root = _build_hypertree_d3(seed, sk_seed, subtree_h, h)
-    else:
-        raise ValueError(f"Unsupported d={d}")
+    if pk_root is None:
+        if d == 2:
+            pk_root = _build_hypertree_d2(seed, sk_seed, subtree_h)
+        elif d == 3:
+            pk_root = _build_hypertree_d3(seed, sk_seed, subtree_h, h)
+        else:
+            raise ValueError(f"Unsupported d={d}")
 
     eprint(f"  pkRoot = {hex(pk_root)[:18]}...")
 
@@ -603,6 +596,12 @@ def sign_variant(variant_name, message_int):
     eprint(f"  Signature: {len(sig)} bytes")
 
     return seed, pk_root, sig
+
+
+def sign_with_known_keys(variant_name, message_int, seed, sk_seed, pk_root):
+    """Sign message_int with a pre-existing keypair (skips key derivation and pkRoot rebuild)."""
+    _, _, sig = sign_variant(variant_name, message_int, seed=seed, sk_seed=sk_seed, pk_root=pk_root)
+    return sig
 
 
 # ============================================================

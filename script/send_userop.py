@@ -19,6 +19,7 @@ import os
 import json
 import time
 import argparse
+import subprocess
 import requests
 from eth_account import Account
 from eth_account.messages import encode_defunct
@@ -26,7 +27,7 @@ from eth_abi import encode, decode
 
 # Add script dir to path so we can import signer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from signer import sign_variant, keccak256, to_b32, N_MASK
+from signer import sign_variant, sign_with_known_keys, derive_keys, keccak256, to_b32, N_MASK
 
 # ============================================================
 #  Constants
@@ -34,6 +35,17 @@ from signer import sign_variant, keccak256, to_b32, N_MASK
 
 ENTRYPOINT_V09 = "0x433709009B8330FDa32311DF1C2AFA402eD8D009"
 CHAIN_ID = 11155111  # Sepolia
+
+PACKED_USEROP_TYPEHASH = keccak256(
+    b"PackedUserOperation(address sender,uint256 nonce,bytes initCode,"
+    b"bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,"
+    b"bytes32 gasFees,bytes paymasterAndData)"
+).to_bytes(32, "big")
+
+_EIP712_DOMAIN_TYPEHASH = keccak256(
+    b"EIP712Domain(string name,string version,uint256 chainId,"
+    b"address verifyingContract)"
+).to_bytes(32, "big")
 
 # ============================================================
 #  Helpers
@@ -59,11 +71,19 @@ def get_pimlico_url():
 
 def get_eth_rpc():
     """Get a standard Ethereum RPC (not bundler) for eth_call etc."""
-    rpc = os.environ.get("ETH_RPC_URL")
-    if rpc:
-        return rpc
-    # Fallback to public Sepolia
-    return "https://rpc.sepolia.org"
+    rpc = os.environ.get("ETH_RPC_URL") or os.environ.get("SEPOLIA_RPC_URL")
+    if not rpc:
+        env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("SEPOLIA_RPC_URL="):
+                        rpc = line.split("=", 1)[1].strip()
+                    elif line.startswith("ETH_RPC_URL="):
+                        rpc = line.split("=", 1)[1].strip()
+                        break
+    return rpc or "https://rpc.sepolia.org"
 
 
 def rpc_call(url, method, params):
@@ -136,24 +156,34 @@ def get_sphincs_root(ecdsa_privkey_hex, variant):
 #  UserOp Construction
 # ============================================================
 
-def pack_user_op_for_hash(user_op):
-    """Pack UserOp for hashing (per ERC-4337 spec).
-    hash = keccak256(abi.encode(
-        keccak256(pack(userOp)),  // without signature and paymasterSignature
-        entryPoint,
-        chainId
+def _domain_separator():
+    """EIP-712 domain separator for EntryPoint v0.9 on Sepolia."""
+    return keccak_bytes(encode(
+        ["bytes32", "bytes32", "bytes32", "uint256", "address"],
+        [_EIP712_DOMAIN_TYPEHASH,
+         keccak_bytes(b"ERC4337"),
+         keccak_bytes(b"1"),
+         CHAIN_ID,
+         bytes.fromhex(ENTRYPOINT_V09[2:])]
     ))
+
+_DOMAIN_SEP = _domain_separator()
+
+
+def pack_user_op_for_hash(user_op):
+    """EIP-712 userOpHash per EntryPoint v0.9:
+    keccak256("\\x19\\x01" || domainSeparator || structHash)
     """
-    # Pack the inner hash: sender, nonce, keccak(initCode), keccak(callData),
-    # accountGasLimits, preVerificationGas, gasFees, keccak(paymasterAndData)
     init_code = bytes.fromhex(user_op["initCode"][2:]) if user_op["initCode"] != "0x" else b""
     call_data = bytes.fromhex(user_op["callData"][2:]) if user_op["callData"] != "0x" else b""
     pm_data = bytes.fromhex(user_op["paymasterAndData"][2:]) if user_op["paymasterAndData"] != "0x" else b""
 
-    inner = encode(
-        ["address", "uint256", "bytes32", "bytes32", "bytes32", "uint256", "bytes32", "bytes32"],
+    struct_hash = keccak_bytes(encode(
+        ["bytes32", "address", "uint256", "bytes32", "bytes32",
+         "bytes32", "uint256", "bytes32", "bytes32"],
         [
-            bytes.fromhex(user_op["sender"][2:]),  # address
+            PACKED_USEROP_TYPEHASH,
+            bytes.fromhex(user_op["sender"][2:]),
             int(user_op["nonce"], 16),
             keccak_bytes(init_code),
             keccak_bytes(call_data),
@@ -162,16 +192,9 @@ def pack_user_op_for_hash(user_op):
             bytes.fromhex(user_op["gasFees"][2:]),
             keccak_bytes(pm_data),
         ]
-    )
+    ))
 
-    inner_hash = keccak_bytes(inner)
-
-    outer = encode(
-        ["bytes32", "address", "uint256"],
-        [inner_hash, bytes.fromhex(ENTRYPOINT_V09[2:]), CHAIN_ID]
-    )
-
-    return keccak_bytes(outer)
+    return keccak_bytes(b"\x19\x01" + _DOMAIN_SEP + struct_hash)
 
 
 def build_execute_calldata(to_addr, value_wei, data=b""):
@@ -188,7 +211,7 @@ def sign_user_op(user_op_hash_bytes, ecdsa_privkey_hex, sphincs_sig_bytes):
     """Create hybrid signature: abi.encode(ecdsaSig, sphincsSig)."""
     # ECDSA sign the userOpHash
     acct = Account.from_key(bytes.fromhex(ecdsa_privkey_hex))
-    signed = acct.signHash(user_op_hash_bytes)
+    signed = acct.unsafe_sign_hash(user_op_hash_bytes)
 
     # Pack ECDSA sig as (r, s, v) = 65 bytes
     ecdsa_sig = (
@@ -263,7 +286,6 @@ def cmd_send(args):
 
     ecdsa_key = args.ecdsa_key.replace("0x", "")
     acct = Account.from_key(bytes.fromhex(ecdsa_key))
-    bundler_url = get_pimlico_url()
     rpc = get_eth_rpc()
 
     print(f"ECDSA signer: {acct.address}")
@@ -277,21 +299,22 @@ def cmd_send(args):
     call_data = build_execute_calldata(args.to, value_wei)
 
     # Get nonce
-    nonce_result = rpc_call(bundler_url, "eth_call", [{
+    nonce_result = rpc_call(rpc, "eth_call", [{
         "to": ENTRYPOINT_V09,
         "data": "0x" + (keccak_bytes(b"getNonce(address,uint192)")[:4] +
                         encode(["address", "uint192"], [bytes.fromhex(args.account[2:]), 0])).hex()
     }, "latest"])
     nonce = hex_to_int(nonce_result) if nonce_result else 0
 
-    # Get gas prices
-    gas_prices = rpc_call(bundler_url, "pimlico_getUserOperationGasPrice", [])
-    if gas_prices and "fast" in gas_prices:
-        max_fee = gas_prices["fast"]["maxFeePerGas"]
-        max_priority = gas_prices["fast"]["maxPriorityFeePerGas"]
+    # Get gas prices from standard RPC
+    block_info = rpc_call(rpc, "eth_getBlockByNumber", ["latest", False])
+    if block_info and "baseFeePerGas" in block_info:
+        base_fee = hex_to_int(block_info["baseFeePerGas"])
+        max_priority_int = 2 * 10**9  # 2 gwei tip
+        max_fee_int = base_fee * 2 + max_priority_int
     else:
-        max_fee = "0x" + (50 * 10**9).to_bytes(16, "big").hex()  # 50 gwei
-        max_priority = "0x" + (2 * 10**9).to_bytes(16, "big").hex()  # 2 gwei
+        max_fee_int = 50 * 10**9
+        max_priority_int = 2 * 10**9
 
     # Pack gas fields
     # accountGasLimits = uint128(verificationGasLimit) || uint128(callGasLimit)
@@ -300,8 +323,6 @@ def cmd_send(args):
     account_gas_limits = "0x" + (ver_gas.to_bytes(16, "big") + call_gas.to_bytes(16, "big")).hex()
 
     # gasFees = uint128(maxPriorityFeePerGas) || uint128(maxFeePerGas)
-    max_priority_int = hex_to_int(max_priority) if isinstance(max_priority, str) else max_priority
-    max_fee_int = hex_to_int(max_fee) if isinstance(max_fee, str) else max_fee
     gas_fees = "0x" + (max_priority_int.to_bytes(16, "big") + max_fee_int.to_bytes(16, "big")).hex()
 
     pre_ver_gas = 200_000
@@ -316,33 +337,32 @@ def cmd_send(args):
         "preVerificationGas": hex(pre_ver_gas),
         "gasFees": gas_fees,
         "paymasterAndData": "0x",
-        "signature": "0x" + ("00" * 1000),  # dummy sig for estimation
+        "signature": "0x",
     }
-
-    print("\nEstimating gas...")
-    gas_est = rpc_call(bundler_url, "eth_estimateUserOperationGas", [user_op, ENTRYPOINT_V09])
-    if gas_est:
-        print(f"  Gas estimates: {json.dumps(gas_est, indent=2)}")
-        # Update gas limits from estimation
-        ver_gas = hex_to_int(gas_est.get("verificationGasLimit", hex(ver_gas)))
-        call_gas = hex_to_int(gas_est.get("callGasLimit", hex(call_gas)))
-        pre_ver_gas = hex_to_int(gas_est.get("preVerificationGas", hex(pre_ver_gas)))
-
-        # Add safety margins
-        ver_gas = int(ver_gas * 1.5)
-        call_gas = int(call_gas * 1.5)
-
-        user_op["accountGasLimits"] = "0x" + (ver_gas.to_bytes(16, "big") + call_gas.to_bytes(16, "big")).hex()
-        user_op["preVerificationGas"] = hex(pre_ver_gas)
 
     # Compute userOpHash
     user_op_hash = pack_user_op_for_hash(user_op)
     print(f"\nUserOp hash: 0x{user_op_hash.hex()}")
 
-    # Sign with SPHINCS+
+    # Load saved SPHINCS+ keypair
+    keypair_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".sphincs_keypair_{args.variant}.json")
+    if not os.path.exists(keypair_file):
+        print(f"Error: No keypair for variant {args.variant}. Run 'create' first.", file=sys.stderr)
+        sys.exit(1)
+    with open(keypair_file) as f:
+        kp = json.load(f)
+    seed_int = int(kp["seed"], 16)
+    root_int = int(kp["root"], 16)
+
+    # Rederive sk_seed (deterministic from ECDSA key, same path as create)
+    entropy_input = bytes.fromhex(ecdsa_key) + args.variant.encode()
+    keygen_msg = keccak256(b"sphincs_keygen" + entropy_input)
+    _, sk_seed = derive_keys(keygen_msg)
+
+    # Sign with SPHINCS+ (using stored keypair, skips pkRoot rebuild)
     user_op_hash_int = int.from_bytes(user_op_hash, "big")
-    print(f"Generating SPHINCS+ signature (variant {args.variant})... this takes ~10s")
-    _seed, _root, sphincs_sig = sign_variant(args.variant, user_op_hash_int)
+    print(f"Generating SPHINCS+ signature (variant {args.variant})...")
+    sphincs_sig = sign_with_known_keys(args.variant, user_op_hash_int, seed_int, sk_seed, root_int)
     print(f"  SPHINCS+ sig: {len(sphincs_sig)} bytes")
 
     # Create hybrid signature
@@ -350,25 +370,39 @@ def cmd_send(args):
     user_op["signature"] = "0x" + hybrid_sig.hex()
     print(f"  Hybrid sig total: {len(hybrid_sig)} bytes")
 
-    # Submit
-    print("\nSubmitting UserOp to bundler...")
-    result = rpc_call(bundler_url, "eth_sendUserOperation", [user_op, ENTRYPOINT_V09])
-    if result:
-        print(f"UserOp hash (bundler): {result}")
-        print("\nWaiting for receipt...")
-        for _ in range(60):
-            receipt = rpc_call(bundler_url, "eth_getUserOperationReceipt", [result])
-            if receipt:
-                print(f"\nTransaction mined!")
-                print(f"  TX hash: {receipt.get('receipt', {}).get('transactionHash', 'unknown')}")
-                print(f"  Block:   {receipt.get('receipt', {}).get('blockNumber', 'unknown')}")
-                print(f"  Success: {receipt.get('success', 'unknown')}")
-                print(f"  Gas used: {receipt.get('actualGasUsed', 'unknown')}")
-                return
-            time.sleep(2)
-        print("Timeout waiting for receipt")
+    # Submit directly via EntryPoint.handleOps (no bundler needed for v0.9)
+    print("\nSubmitting via handleOps...")
+    op_tuple = (
+        bytes.fromhex(user_op["sender"][2:]),
+        int(user_op["nonce"], 16),
+        bytes.fromhex(user_op["initCode"][2:]) if user_op["initCode"] != "0x" else b"",
+        bytes.fromhex(user_op["callData"][2:]) if user_op["callData"] != "0x" else b"",
+        bytes.fromhex(user_op["accountGasLimits"][2:]),
+        int(user_op["preVerificationGas"], 16),
+        bytes.fromhex(user_op["gasFees"][2:]),
+        bytes.fromhex(user_op["paymasterAndData"][2:]) if user_op["paymasterAndData"] != "0x" else b"",
+        bytes.fromhex(user_op["signature"][2:]),
+    )
+    selector = keccak_bytes(
+        b"handleOps((address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes)[],address)"
+    )[:4]
+    params = encode(
+        ["(address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes)[]", "address"],
+        [[op_tuple], bytes.fromhex(acct.address[2:])]
+    )
+    calldata = "0x" + (selector + params).hex()
+
+    proc = subprocess.run(
+        ["cast", "send", ENTRYPOINT_V09, calldata,
+         "--rpc-url", rpc, "--private-key", "0x" + ecdsa_key,
+         "--gas-limit", "5000000"],
+        capture_output=True, text=True, timeout=120,
+    )
+    if proc.returncode == 0:
+        print(proc.stdout)
+        print("UserOp executed successfully!")
     else:
-        print("Failed to submit UserOp")
+        print(f"handleOps failed:\n{proc.stderr}", file=sys.stderr)
 
 
 def cmd_info(args):

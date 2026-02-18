@@ -10,3 +10,14 @@ __pycache__/
 
 # Secrets
 .env
+
+# Local SPHINCS+ keypair state (public key only, but deployment-specific)
+script/.sphincs_keypair_*.json
+
+
+# venv python
+venv/
+.venv/
+
+# Foundry broadcast run artifacts (deployment-specific, contain tx hashes and keys)
+broadcast/
