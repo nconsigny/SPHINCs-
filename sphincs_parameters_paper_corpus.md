@@ -84,21 +84,9 @@ These are the papers and specifications referenced during SPHINCS+/SLH-DSA param
 
 ## 5. Related Cryptographic Protocol Papers
 
-### Golden DKG — Non-Interactive Distributed Key Generation
-- **eprint:** https://eprint.iacr.org/2025/1924
-- **Relevance:** One-round DKG protocol. Referenced when exploring on-chain DKG feasibility for hardware wallet trust reduction. 223 KB bandwidth and 13.5s runtime for 50 participants.
-
 ### Vitalik's Quantum Emergency Hard Fork Proposal
 - **URL:** https://ethresear.ch/t/how-to-hard-fork-to-save-most-users-funds-in-a-quantum-emergency/18901
 - **Relevance:** Emergency recovery using STARK proofs of BIP-32 seed knowledge. Framework for PQ migration strategy. Referenced when discussing EOA migration paths.
-
-### Ethereum PQ Tasklist
-- **URL:** https://ethresear.ch/t/tasklist-for-post-quantum-eth/21296
-- **Relevance:** Community tracker for PQ transition requirements across execution and consensus layers.
-
-### Quantum-Proof Keypairs with ECDSA + ZK
-- **URL:** https://ethresear.ch/t/quantum-proof-keypairs-with-ecdsa-zk/14901
-- **Relevance:** ZK proofs over existing ECDSA keypairs as a migration bridge.
 
 ### Bitcoin PQ Migration Draft BIP (Jameson Lopp)
 - **URL:** https://github.com/jlopp/bips/blob/quantum_migration/bip-post-quantum-migration.mediawiki
@@ -115,32 +103,37 @@ These are the papers and specifications referenced during SPHINCS+/SLH-DSA param
 ### NIST PQC Call for Proposals — 2^64 Signature Requirement
 - **Relevance:** The origin of the 2^64 signature capacity requirement that drove SPHINCS+ parameter choices. Understanding this requirement was critical for justifying reduced parameter sets.
 
+
+### Smaller SLH-DSA  —  September 25th, 2025
+- **URL:** https://csrc.nist.gov/csrc/media/presentations/2025/sphincs-smaller-parameter-sets/sphincs-dang_2.2.pdf
+- **Relevance:** FIPS 205: SLH-DSA. Searches and evaluations of smaller SLH-DSA options and their applicability for certificate, software, and firmware signing.
+
 ---
 
 ## Summary of Key URLs
 
-| # | Paper/Resource | URL |
-|---|---------------|-----|
-| 1 | FIPS 205 (SLH-DSA) | https://csrc.nist.gov/pubs/fips/205/final |
-| 2 | SPHINCS+ R3.1 Spec | https://sphincs.org/data/sphincs+-r3.1-specification.pdf |
-| 3 | Kölbl & Philipoom (Google) | https://eprint.iacr.org/2022/1725 |
-| 4 | Kölbl & Philipoom (NIST conf PDF) | https://csrc.nist.gov/csrc/media/Events/2024/fifth-pqc-standardization-conference/documents/papers/a-note-on-sphincs-plus-parameter-sets.pdf |
-| 5 | Fluhrer & Dang — Smaller SPHINCS+ | https://eprint.iacr.org/2024/018 |
-| 6 | Blockstream SPHINCS Parameters | https://eprint.iacr.org/2025/2203 |
-| 7 | Blockstream GitHub | https://github.com/BlockstreamResearch/SPHINCS-Parameters |
-| 8 | poqeth (Kysil et al.) | https://eprint.iacr.org/2025/091 |
-| 9 | Hash-Based Multi-Sigs for PQ Ethereum | https://eprint.iacr.org/2025/055 |
-| 10 | leanSig paper | https://eprint.iacr.org/2025/1332 |
-| 11 | leanSig GitHub | https://github.com/leanEthereum/leanSig |
-| 12 | leanMultisig GitHub | https://github.com/leanEthereum/leanMultisig |
-| 13 | Gärtner — Shorter Lattice Sigs | https://eprint.iacr.org/2024/2052 |
-| 14 | ETHFALCON | https://github.com/ZKNOXHQ/ETHFALCON |
-| 15 | ETHDILITHIUM | https://github.com/ZKNOXHQ/ETHDILITHIUM |
-| 16 | Golden DKG | https://eprint.iacr.org/2025/1924 |
-| 17 | poqeth GitHub | https://github.com/ruslan-ilesik/poqeth |
-| 18 | Vitalik — QE Hard Fork | https://ethresear.ch/t/how-to-hard-fork-to-save-most-users-funds-in-a-quantum-emergency/18901 |
-| 19 | PQ Ethereum Tasklist | https://ethresear.ch/t/tasklist-for-post-quantum-eth/21296 |
-| 20 | Lopp — Bitcoin PQ BIP | https://github.com/jlopp/bips/blob/quantum_migration/bip-post-quantum-migration.mediawiki |
+| #  | Paper/Resource                                           | URL                                                                                                    |
+|----|---------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| 1  | FIPS 205 (SLH-DSA)                                      | https://csrc.nist.gov/pubs/fips/205/final                                                             |
+| 2  | SPHINCS+ R3.1 Spec                                      | https://sphincs.org/data/sphincs+-r3.1-specification.pdf                                               |
+| 3  | Kölbl & Philipoom (Google)                              | https://eprint.iacr.org/2022/1725                                                                      |
+| 4  | Kölbl & Philipoom (NIST conf PDF)                       | https://csrc.nist.gov/csrc/media/Events/2024/fifth-pqc-standardization-conference/documents/papers/a-note-on-sphincs-plus-parameter-sets.pdf |
+| 5  | Fluhrer & Dang — Smaller SPHINCS+                       | https://eprint.iacr.org/2024/018                                                                       |
+| 6  | Blockstream SPHINCS Parameters                          | https://eprint.iacr.org/2025/2203                                                                      |
+| 7  | Blockstream GitHub                                      | https://github.com/BlockstreamResearch/SPHINCS-Parameters                                              |
+| 8  | poqeth (Kysil et al.)                                   | https://eprint.iacr.org/2025/091                                                                       |
+| 9  | Hash-Based Multi-Sigs for PQ Ethereum                   | https://eprint.iacr.org/2025/055                                                                       |
+| 10 | leanSig paper                                           | https://eprint.iacr.org/2025/1332                                                                      |
+| 11 | leanSig GitHub                                          | https://github.com/leanEthereum/leanSig                                                                |
+| 12 | leanMultisig GitHub                                     | https://github.com/leanEthereum/leanMultisig                                                           |
+| 13 | Gärtner — Shorter Lattice Sigs                          | https://eprint.iacr.org/2024/2052                                                                      |
+| 14 | ETHFALCON                                               | https://github.com/ZKNOXHQ/ETHFALCON                                                                   |
+| 15 | ETHDILITHIUM                                            | https://github.com/ZKNOXHQ/ETHDILITHIUM                                                                |
+| 16 | Smaller SLH-DSA (Fluhrer & Dang NIST PQC 2025 slides)   | https://csrc.nist.gov/csrc/media/presentations/2025/sphincs-smaller-parameter-sets/sphincs-dang_2.2.pdf|
+| 17 | poqeth GitHub                                           | https://github.com/ruslan-ilesik/poqeth                                                                |
+| 18 | Vitalik — QE Hard Fork                                  | https://ethresear.ch/t/how-to-hard-fork-to-save-most-users-funds-in-a-quantum-emergency/18901          |
+| 20 | Lopp — Bitcoin PQ BIP                                   | https://github.com/jlopp/bips/blob/quantum_migration/bip-post-quantum-migration.mediawiki              |
+
 
 ---
 
