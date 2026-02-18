@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 /// @title SecurityAnalysis - Signature reuse decay and security properties
-/// @author Generated for ePrint 2025/2203 parameter exploration
+/// @author Nicolas Consigny (github.com/nconsigny) for ePrint 2025/2203 parameter exploration
 /// @notice This library documents security properties and provides on-chain
 ///         signature budget enforcement for tweaked SPHINCS+ variants.
 ///
