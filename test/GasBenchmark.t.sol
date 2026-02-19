@@ -84,19 +84,19 @@ contract GasBenchmark is Test {
         console.log("Per node: %d gas", (g - ge) / 9);
     }
 
-    /// @notice Benchmark WOTS+C full verification (l=39 chains, w=16)
+    /// @notice Benchmark WOTS+C full verification (l=32 chains, w=16)
     function test_WotsPlusC_Verify_Gas() public view {
         // Build a synthetic WOTS+C signature that satisfies the sum constraint
         WotsPlusC.Params memory params = WotsPlusC.Params({
-            w: 16, l: 39, len1: 39, targetSum: 292, z: 0
+            w: 16, l: 32, len1: 32, targetSum: 240, z: 0
         });
 
         bytes32 adrs = TweakableHash.makeAdrs(0, 0, TweakableHash.ADRS_WOTS, 0, 0, 0, 0);
         bytes32 msgHash = keccak256("msg");
 
         // Generate sigma values (random, won't produce valid PK but measures gas)
-        bytes32[] memory sigma = new bytes32[](39);
-        for (uint256 i = 0; i < 39; i++) {
+        bytes32[] memory sigma = new bytes32[](32);
+        for (uint256 i = 0; i < 32; i++) {
             sigma[i] = keccak256(abi.encodePacked("sigma", i));
         }
 
@@ -108,9 +108,9 @@ contract GasBenchmark is Test {
         WotsPlusC.verify(SEED, adrs, msgHash, sigma, validCount, params);
         uint256 ge = gasleft();
 
-        console.log("=== WOTS+C Verify (l=39, w=16) Gas ===");
+        console.log("=== WOTS+C Verify (l=32, w=16) Gas ===");
         console.log("Total:     %d gas", g - ge);
-        console.log("Per chain: %d gas", (g - ge) / 39);
+        console.log("Per chain: %d gas", (g - ge) / 32);
     }
 
     /// @notice Benchmark signature size comparison under EIP-7623 calldata floor
@@ -119,20 +119,33 @@ contract GasBenchmark is Test {
         // Standard pricing:        16 gas/nonzero byte,  4 gas/zero byte
         // Hash output bytes: ~97% nonzero (uniformly distributed)
 
-        uint256[3] memory sigSizes = [uint256(3704), uint256(4264), uint256(3596)];
+        uint256[3] memory sigSizes = [uint256(3480), uint256(4040), uint256(3260)];
         string[3] memory names = [
             "W+C_P+FP (h=18,d=2)",
             "W+C_F+C  (h=18,d=2)",
             "W+C_P+FP (h=27,d=3)"
         ];
 
+        // Separate hash bytes (nonzero-dominated) from count bytes (small integers)
+        // C1: 16(R) + 13*16(secrets) + 121*16(auth) + 2*(32*16 + 9*16) hash; 2*4 count
+        // C2: 16(R) + 13*16(secrets) + 12*13*16(auth) + 2*(32*16 + 9*16) hash; 2*4 count
+        // C3: 16(R) + 11*16(secrets) + 68*16(auth) + 3*(32*16 + 9*16) hash; 3*4 count
+        uint256[3] memory hashBytes = [
+            uint256(16 + 13*16 + 121*16 + 2*(32*16 + 9*16)),
+            uint256(16 + 13*16 + 12*13*16 + 2*(32*16 + 9*16)),
+            uint256(16 + 11*16 + 68*16 + 3*(32*16 + 9*16))
+        ];
+        uint256[3] memory countBytes = [uint256(2*4), uint256(2*4), uint256(3*4)];
+
         console.log("=== Calldata Gas: Standard vs EIP-7623 Floor ===");
         console.log("  NZ byte: 16 (std) vs 60 (floor)");
         console.log("  Z byte:   4 (std) vs 15 (floor)");
         console.log("");
         for (uint256 i = 0; i < 3; i++) {
-            uint256 nonZero = (sigSizes[i] * 97) / 100;
-            uint256 zero = sigSizes[i] - nonZero;
+            uint256 hashNZ = (hashBytes[i] * 97) / 100;
+            uint256 hashZ  = hashBytes[i] - hashNZ;
+            uint256 nonZero = hashNZ;
+            uint256 zero    = hashZ + countBytes[i];
             uint256 stdGas = nonZero * 16 + zero * 4;
             uint256 floorGas = nonZero * 60 + zero * 15;
             uint256 multX10 = (floorGas * 10) / stdGas;
@@ -183,14 +196,14 @@ contract GasBenchmark is Test {
         console.log("");
         console.log("Scheme              h   d   a   k   w   SigSize  Target Gas");
         console.log("------------------------------------------------------------");
-        console.log("W+C_P+FP (C1)      18   2  13  13  16   3704B    249.7K");
-        console.log("W+C_F+C  (C2)      18   2  13  13  16   4264B    284.9K");
-        console.log("W+C_P+FP (C3)      27   3  11  11  16   3596B    251.9K");
+        console.log("W+C_P+FP (C1)      18   2  13  13  16   3480B    231.2K");
+        console.log("W+C_F+C  (C2)      18   2  13  13  16   4040B    265.6K");
+        console.log("W+C_P+FP (C3)      27   3  11  11  16   3260B    226.8K");
         console.log("");
         console.log("Gas Breakdown (EIP-7623 floor pricing):");
-        console.log("  C1: 222.2K calldata(floor) + 27.5K compute = 249.7K total");
-        console.log("  C2: 255.8K calldata(floor) + 29.0K compute = 284.9K total");
-        console.log("  C3: 215.8K calldata(floor) + 36.1K compute = 251.9K total");
+        console.log("  C1: 203.7K calldata(floor) + 27.5K compute = 231.2K total");
+        console.log("  C2: 236.6K calldata(floor) + 29.0K compute = 265.6K total");
+        console.log("  C3: 190.7K calldata(floor) + 36.1K compute = 226.8K total");
         console.log("");
         console.log("EIP-7623 Impact:");
         console.log("  Calldata floor (60/15) is ~3.75x standard pricing (16/4)");
@@ -203,7 +216,7 @@ contract GasBenchmark is Test {
         console.log("  ~112-bit security after a few million signatures");
         console.log("  C3 (h=27) degrades slower due to more FORS instances");
         console.log("");
-        console.log("WOTS+C params: l=39, len1=39, z=0, S_w,n=292, w=16");
+        console.log("WOTS+C params: l=32, len1=32, z=0, S_w,n=240, w=16");
         console.log("PORS+FP C1: mMax=121 auth nodes");
         console.log("PORS+FP C3: mMax=68 auth nodes");
     }

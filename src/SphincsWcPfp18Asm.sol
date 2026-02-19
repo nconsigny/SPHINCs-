@@ -2,14 +2,14 @@
 pragma solidity ^0.8.28;
 
 /// @title SphincsWcPfp18Asm - Assembly-optimized SPHINCS+ Verifier: W+C + P+FP
-/// @notice Contract 1 Asm: h=18, d=2, a=13, k=13, w=16, l=39, S_{w,n}=292, z=0, mMax=121
-///         Sig: 3704 bytes. Same external interface as SphincsWcPfp18.
+/// @notice Contract 1 Asm: h=18, d=2, a=13, k=13, w=16, l=32, S_{w,n}=240, z=0, mMax=121
+///         Sig: 3480 bytes. Same external interface as SphincsWcPfp18.
 /// @dev Fixed memory layout:
 ///        0x00:  seed (warm forever)
 ///        0x20:  ADRS scratch
 ///        0x40:  input1 / left child
 ///        0x60:  input2 / right child
-///        0x80:  WOTS endpoint buffer (39×32) / leaf hashes (13×32) / FORS roots
+///        0x80:  WOTS endpoint buffer (32×32) / leaf hashes (13×32) / FORS roots
 ///        0x560: Octopus working set ((K+mMax)*64 max)
 ///        0x540: scratch for idxTree spill, 0x560: sigOff spill
 contract SphincsWcPfp18Asm {
@@ -26,8 +26,8 @@ contract SphincsWcPfp18Asm {
             let N_MASK := 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000000000000000000000000000
             let SIG_BASE := 0x64
 
-            // Verify sig length = 3704
-            if iszero(eq(calldataload(0x44), 3704)) {
+            // Verify sig length = 3480
+            if iszero(eq(calldataload(0x44), 3480)) {
                 mstore(0x00, 0x08c379a000000000000000000000000000000000000000000000000000000000)
                 mstore(0x04, 0x20)
                 mstore(0x24, 18)
@@ -60,17 +60,8 @@ contract SphincsWcPfp18Asm {
             // K=13 leaves, A=TREE_HEIGHT=13, mMax=121
             // PORS_START=16, AUTH_START=16+13*16=224, HT_START=224+121*16=2160
 
-            // 2a: Hash K=13 secrets into leaf hashes at 0x80+i*32
-            for { let i := 0 } lt(i, 13) { i := add(i, 1) } {
-                let secretVal := and(calldataload(add(SIG_BASE, add(16, mul(i, 16)))), N_MASK)
-                // leafAdrs: type=PORS(5), hashAddr=i
-                mstore(0x20, or(shl(128, 5), i))
-                mstore(0x40, secretVal)
-                mstore(add(0x80, mul(i, 0x20)), and(keccak256(0x00, 0x60), N_MASK))
-            }
-
-            // 2b: Extract 13 sorted distinct indices from digest
-            // Indices stored at 0x280 (= 0x80 + 13*32), leaf hashes remain at 0x80
+            // 2a: Extract 13 distinct indices from digest.
+            // Indices stored at 0x280 (= 0x80 + 13*32), leaf hashes at 0x80.
             let INDICES_BASE := 0x280
             {
                 let totalLeaves := 8192 // 2^13
@@ -103,6 +94,15 @@ contract SphincsWcPfp18Asm {
                         }
                     }
                     nonce := add(nonce, 1)
+                }
+
+                // Hash secrets into leaf hashes using digest-derived indices.
+                for { let i := 0 } lt(i, 13) { i := add(i, 1) } {
+                    let secretVal := and(calldataload(add(SIG_BASE, add(16, mul(i, 16)))), N_MASK)
+                    let leafIdx := mload(add(INDICES_BASE, mul(i, 0x20)))
+                    mstore(0x20, or(shl(128, 5), leafIdx))
+                    mstore(0x40, secretVal)
+                    mstore(add(0x80, mul(i, 0x20)), and(keccak256(0x00, 0x60), N_MASK))
                 }
 
                 // Insertion sort indices AND co-sort leaf hashes at 0x80
@@ -220,7 +220,7 @@ contract SphincsWcPfp18Asm {
                 let wotsAdrs := or(shl(224, layer), or(shl(160, idxTree), shl(96, idxLeaf)))
 
                 // Read count
-                let countOff := add(sigOff, 624) // 39*16
+                let countOff := add(sigOff, 512) // 32*16
                 let count := shr(224, calldataload(add(SIG_BASE, countOff)))
 
                 // WOTS digest
@@ -230,15 +230,15 @@ contract SphincsWcPfp18Asm {
                 mstore(0x60, count)
                 let d := keccak256(0x00, 0x80)
 
-                // Validate digit sum = 292
+                // Validate digit sum = 240
                 let digitSum := 0
-                for { let ii := 0 } lt(ii, 39) { ii := add(ii, 1) } {
+                for { let ii := 0 } lt(ii, 32) { ii := add(ii, 1) } {
                     digitSum := add(digitSum, and(shr(mul(ii, 4), d), 0xF))
                 }
-                if iszero(eq(digitSum, 292)) { revert(0, 0) }
+                if iszero(eq(digitSum, 240)) { revert(0, 0) }
 
-                // Complete 39 chains
-                for { let i := 0 } lt(i, 39) { i := add(i, 1) } {
+                // Complete 32 chains
+                for { let i := 0 } lt(i, 32) { i := add(i, 1) } {
                     let digit := and(shr(mul(i, 4), d), 0xF)
                     let steps := sub(15, digit)
                     let val := and(calldataload(add(SIG_BASE, add(sigOff, mul(i, 16)))), N_MASK)
@@ -261,10 +261,10 @@ contract SphincsWcPfp18Asm {
                 // PK compression
                 let pkAdrs := or(shl(224, layer), or(shl(160, idxTree), or(shl(128, 1), shl(96, idxLeaf))))
                 mstore(0x20, pkAdrs)
-                for { let i := 0 } lt(i, 39) { i := add(i, 1) } {
+                for { let i := 0 } lt(i, 32) { i := add(i, 1) } {
                     mstore(add(0x40, mul(i, 0x20)), mload(add(0x80, mul(i, 0x20))))
                 }
-                let wotsPk := and(keccak256(0x00, 0x520), N_MASK)
+                let wotsPk := and(keccak256(0x00, 0x440), N_MASK)
 
                 // Merkle auth path (h=9)
                 let authOff := add(countOff, 4)

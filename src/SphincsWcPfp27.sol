@@ -5,7 +5,7 @@ import {TweakableHash} from "./TweakableHash.sol";
 import {WotsPlusC} from "./WotsPlusC.sol";
 
 /// @title SphincsWcPfp27 - Tweaked SPHINCS+ Verifier: W+C + P+FP (h=27, d=3, a=11, k=11)
-/// @notice Contract 3: WOTS+C with PORS+FP, deeper hypertree. Sig: 3596 bytes.
+/// @notice Contract 3: WOTS+C with PORS+FP, deeper hypertree. Sig: 3260 bytes.
 contract SphincsWcPfp27 {
     uint256 constant N = 16;
     uint256 constant H = 27;
@@ -14,9 +14,9 @@ contract SphincsWcPfp27 {
     uint256 constant A = 11;
     uint256 constant K = 11;
     uint256 constant W = 16;
-    uint256 constant L = 39;
-    uint256 constant LEN1 = 39;
-    uint256 constant TARGET_SUM = 292;
+    uint256 constant L = 32;           // ceil(128/4) = 32 message chains
+    uint256 constant LEN1 = 32;        // ceil(n_bits/log2(w)) = 32
+    uint256 constant TARGET_SUM = 240; // (w-1)*len1/2 = 15*32/2 = 240
     uint256 constant Z = 0;
     uint256 constant M_MAX = 68;
     uint256 constant TREE_HEIGHT = A;
@@ -86,23 +86,25 @@ contract SphincsWcPfp27 {
         bytes32 digest,
         bytes calldata sig
     ) internal pure returns (bytes32 porsPk) {
+        uint256[] memory leafIndices = _extractIndices(digest);
+
         bytes32[] memory leafHashes = new bytes32[](K);
         for (uint256 i = 0; i < K; i++) {
             bytes32 secretVal = _readN(sig, PORS_START + i * N);
-            bytes32 leafAdrs = TweakableHash.makeAdrs(0, 0, TweakableHash.ADRS_PORS, 0, 0, 0, uint32(i));
+            bytes32 leafAdrs = TweakableHash.makeAdrs(
+                0, 0, TweakableHash.ADRS_PORS, 0, 0, 0, uint32(leafIndices[i])
+            );
             leafHashes[i] = TweakableHash.th(seed, leafAdrs, secretVal);
         }
 
-        (uint256[] memory leafIndices, bytes32[] memory sortedHashes) =
-            _extractIndices(digest, leafHashes);
+        bytes32[] memory sortedHashes = _sortIndicesAndHashes(leafIndices, leafHashes);
 
         porsPk = _octopusReconstruct(seed, leafIndices, sortedHashes, sig);
     }
 
     function _extractIndices(
-        bytes32 digest,
-        bytes32[] memory leafHashes
-    ) internal pure returns (uint256[] memory indices, bytes32[] memory sorted) {
+        bytes32 digest
+    ) internal pure returns (uint256[] memory indices) {
         indices = new uint256[](K);
         uint256 totalLeaves = 1 << TREE_HEIGHT;
         uint256 count = 0;
@@ -132,7 +134,12 @@ contract SphincsWcPfp27 {
             }
             nonce++;
         }
+    }
 
+    function _sortIndicesAndHashes(
+        uint256[] memory indices,
+        bytes32[] memory leafHashes
+    ) internal pure returns (bytes32[] memory sorted) {
         for (uint256 i = 1; i < K; i++) {
             uint256 key = indices[i];
             bytes32 keyHash = leafHashes[i];

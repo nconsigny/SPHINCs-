@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 /// @title SphincsWcPfp27Asm - Assembly-optimized SPHINCS+ Verifier: W+C + P+FP
-/// @notice Contract 3 Asm: h=27, d=3, a=11, k=11, w=16, l=39, S_{w,n}=292, z=0, mMax=68
-///         Sig: 3596 bytes. Same external interface as SphincsWcPfp27.
+/// @notice Contract 3 Asm: h=27, d=3, a=11, k=11, w=16, l=32, S_{w,n}=240, z=0, mMax=68
+///         Sig: 3260 bytes. Same external interface as SphincsWcPfp27.
 contract SphincsWcPfp27Asm {
     bytes32 public pkSeed;  // slot 0
     bytes32 public pkRoot;  // slot 1
@@ -19,9 +19,9 @@ contract SphincsWcPfp27Asm {
             let SIG_BASE := 0x64
 
             // SIG_SIZE = N + K*N + mMax*N + D*(L*N + 4 + SH*N)
-            //          = 16 + 11*16 + 68*16 + 3*(39*16+4+9*16)
-            //          = 16 + 176 + 1088 + 3*772 = 1280 + 2316 = 3596
-            if iszero(eq(calldataload(0x44), 3596)) {
+            //          = 16 + 11*16 + 68*16 + 3*(32*16+4+9*16)
+            //          = 16 + 176 + 1088 + 3*660 = 1280 + 1980 = 3260
+            if iszero(eq(calldataload(0x44), 3260)) {
                 mstore(0x00, 0x08c379a000000000000000000000000000000000000000000000000000000000)
                 mstore(0x04, 0x20)
                 mstore(0x24, 18)
@@ -49,15 +49,7 @@ contract SphincsWcPfp27Asm {
             // PORS_START=16, AUTH_START=16+11*16=192, HT_START=192+68*16=1280
             // ============================================================
 
-            // Hash 11 secrets → leaf hashes at 0x80
-            for { let i := 0 } lt(i, 11) { i := add(i, 1) } {
-                let secretVal := and(calldataload(add(SIG_BASE, add(16, mul(i, 16)))), N_MASK)
-                mstore(0x20, or(shl(128, 5), i)) // type=PORS(5), hashAddr=i
-                mstore(0x40, secretVal)
-                mstore(add(0x80, mul(i, 0x20)), and(keccak256(0x00, 0x60), N_MASK))
-            }
-
-            // Extract 11 sorted distinct indices from digest
+            // Extract 11 distinct indices from digest
             let INDICES_BASE := 0x240 // 0x80 + 11*32 = 0x80 + 0x160
             {
                 let totalLeaves := 2048 // 2^11
@@ -88,6 +80,15 @@ contract SphincsWcPfp27Asm {
                         }
                     }
                     nonce := add(nonce, 1)
+                }
+
+                // Hash secrets using digest-derived leaf indices.
+                for { let i := 0 } lt(i, 11) { i := add(i, 1) } {
+                    let secretVal := and(calldataload(add(SIG_BASE, add(16, mul(i, 16)))), N_MASK)
+                    let leafIdx := mload(add(INDICES_BASE, mul(i, 0x20)))
+                    mstore(0x20, or(shl(128, 5), leafIdx))
+                    mstore(0x40, secretVal)
+                    mstore(add(0x80, mul(i, 0x20)), and(keccak256(0x00, 0x60), N_MASK))
                 }
 
                 // Insertion sort + co-sort hashes
@@ -192,7 +193,7 @@ contract SphincsWcPfp27Asm {
 
                 let wotsAdrs := or(shl(224, layer), or(shl(160, idxTree), shl(96, idxLeaf)))
 
-                let countOff := add(sigOff, 624)
+                let countOff := add(sigOff, 512)
                 let count := shr(224, calldataload(add(SIG_BASE, countOff)))
 
                 mstore(0x00, seed)
@@ -202,12 +203,12 @@ contract SphincsWcPfp27Asm {
                 let d := keccak256(0x00, 0x80)
 
                 let digitSum := 0
-                for { let ii := 0 } lt(ii, 39) { ii := add(ii, 1) } {
+                for { let ii := 0 } lt(ii, 32) { ii := add(ii, 1) } {
                     digitSum := add(digitSum, and(shr(mul(ii, 4), d), 0xF))
                 }
-                if iszero(eq(digitSum, 292)) { revert(0, 0) }
+                if iszero(eq(digitSum, 240)) { revert(0, 0) }
 
-                for { let i := 0 } lt(i, 39) { i := add(i, 1) } {
+                for { let i := 0 } lt(i, 32) { i := add(i, 1) } {
                     let digit := and(shr(mul(i, 4), d), 0xF)
                     let steps := sub(15, digit)
                     let val := and(calldataload(add(SIG_BASE, add(sigOff, mul(i, 16)))), N_MASK)
@@ -229,10 +230,10 @@ contract SphincsWcPfp27Asm {
 
                 let pkAdrs := or(shl(224, layer), or(shl(160, idxTree), or(shl(128, 1), shl(96, idxLeaf))))
                 mstore(0x20, pkAdrs)
-                for { let i := 0 } lt(i, 39) { i := add(i, 1) } {
+                for { let i := 0 } lt(i, 32) { i := add(i, 1) } {
                     mstore(add(0x40, mul(i, 0x20)), mload(add(0x80, mul(i, 0x20))))
                 }
-                let wotsPk := and(keccak256(0x00, 0x520), N_MASK)
+                let wotsPk := and(keccak256(0x00, 0x440), N_MASK)
 
                 let authOff := add(countOff, 4)
                 let treeAdrs := or(shl(224, layer), or(shl(160, idxTree), shl(128, 2)))

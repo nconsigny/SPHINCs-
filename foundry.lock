@@ -2,6 +2,12 @@
   "lib/account-abstraction": {
     "rev": "b36a1ed52ae00da6f8a4c8d50181e2877e4fa410"
   },
+  "lib/forge-std": {
+    "tag": {
+      "name": "v1.15.0",
+      "rev": "0844d7e1fc5e60d77b68e469bff60265f236c398"
+    }
+  },
   "lib/openzeppelin-contracts": {
     "rev": "fcbae5394ae8ad52d8e580a3477db99814b9d565"
   }

@@ -2,14 +2,14 @@
 pragma solidity ^0.8.28;
 
 /// @title SphincsWcFc18Asm - Assembly-optimized SPHINCS+ Verifier: W+C + FORS+C
-/// @notice Contract 2 Asm: h=18, d=2, a=13, k=13, w=16, l=39, S_{w,n}=292, z=0
-///         Sig: 4264 bytes. Same external interface as SphincsWcFc18.
+/// @notice Contract 2 Asm: h=18, d=2, a=13, k=13, w=16, l=32, S_{w,n}=240, z=0
+///         Sig: 4040 bytes. Same external interface as SphincsWcFc18.
 /// @dev Full assembly verification with fixed memory layout:
 ///        0x00: seed (written once, warm forever)
 ///        0x20: ADRS (modified in-place)
 ///        0x40: input1 / left child
 ///        0x60: input2 / right child
-///        0x80: WOTS endpoint buffer / FORS roots buffer (39×32 = 1248 bytes)
+///        0x80: WOTS endpoint buffer / FORS roots buffer (32×32 = 1024 bytes)
 ///      No memory arrays allocated. No library calls. No free pointer usage.
 contract SphincsWcFc18Asm {
     bytes32 public pkSeed;  // slot 0
@@ -22,7 +22,7 @@ contract SphincsWcFc18Asm {
 
     /// @notice Verify a W+C + FORS+C signature
     /// @param message The signed message hash
-    /// @param sig The signature bytes (4264 bytes)
+    /// @param sig The signature bytes (4040 bytes)
     /// @return valid True if signature is valid
     function verify(bytes32 message, bytes calldata sig) external view returns (bool valid) {
         assembly ("memory-safe") {
@@ -35,8 +35,8 @@ contract SphincsWcFc18Asm {
             // Signature layout (byte offsets within sig)
             // FORS_START = 16, AUTH_START = 16+13*16 = 224
             // HT_START = 224 + 12*13*16 = 224 + 2496 = 2720
-            // LAYER_SIZE = 39*16 + 4 + 9*16 = 624 + 4 + 144 = 772
-            // SIG_SIZE = 2720 + 2*772 = 4264
+            // LAYER_SIZE = 32*16 + 4 + 9*16 = 512 + 4 + 144 = 660
+            // SIG_SIZE = 2720 + 2*660 = 4040
 
             // Calldata layout: selector(4) + message(32) + offset(32) + length(32) + sig_bytes
             // sig_bytes starts at calldata offset = 4 + 32 + 32 + 32 = 100 = 0x64
@@ -45,7 +45,7 @@ contract SphincsWcFc18Asm {
             // Verify signature length
             // sig.length is at calldataload(0x44)
             let sigLen := calldataload(0x44)
-            if iszero(eq(sigLen, 4264)) {
+            if iszero(eq(sigLen, 4040)) {
                 mstore(0x00, 0x08c379a000000000000000000000000000000000000000000000000000000000)
                 mstore(0x04, 0x20)
                 mstore(0x24, 18)
@@ -189,8 +189,8 @@ contract SphincsWcFc18Asm {
                 // type=WOTS(0), so type field is 0
                 let wotsAdrs := or(shl(224, layer), or(shl(160, idxTree), shl(96, idxLeaf)))
 
-                // Read count: at sigOff + 39*16 = sigOff + 624
-                let countOff := add(sigOff, 624)
+                // Read count: at sigOff + 32*16 = sigOff + 512
+                let countOff := add(sigOff, 512)
                 let count := shr(224, calldataload(add(SIG_BASE, countOff)))
 
                 // Compute WOTS digest: keccak256(seed || hashAdrs || currentNode || count)
@@ -199,17 +199,17 @@ contract SphincsWcFc18Asm {
                 mstore(0x60, count)
                 let d := keccak256(0x00, 0x80)
 
-                // Extract 39 base-16 digits, validate sum = 292
+                // Extract 32 base-16 digits, validate sum = 240
                 let digitSum := 0
-                for { let ii := 0 } lt(ii, 39) { ii := add(ii, 1) } {
+                for { let ii := 0 } lt(ii, 32) { ii := add(ii, 1) } {
                     digitSum := add(digitSum, and(shr(mul(ii, 4), d), 0xF))
                 }
-                if iszero(eq(digitSum, 292)) {
+                if iszero(eq(digitSum, 240)) {
                     revert(0, 0) // WOTS+C sum constraint violated
                 }
 
-                // Complete 39 chains, store endpoints at 0x80+i*32
-                for { let i := 0 } lt(i, 39) { i := add(i, 1) } {
+                // Complete 32 chains, store endpoints at 0x80+i*32
+                for { let i := 0 } lt(i, 32) { i := add(i, 1) } {
                     let digit := and(shr(mul(i, 4), d), 0xF)
                     let steps := sub(15, digit) // w-1-digit
 
@@ -236,16 +236,16 @@ contract SphincsWcFc18Asm {
                     mstore(add(0x80, mul(i, 0x20)), val)
                 }
 
-                // PK compression: thMulti(seed, pkAdrs, 39 endpoints)
+                // PK compression: thMulti(seed, pkAdrs, 32 endpoints)
                 // pkAdrs: layer | tree | type=WOTS_PK(1) | keyPair
                 let pkAdrs := or(shl(224, layer), or(shl(160, idxTree), or(shl(128, 1), shl(96, idxLeaf))))
                 mstore(0x20, pkAdrs)
-                // Copy 39 endpoints from 0x80 to 0x40 for contiguous layout
-                for { let i := 0 } lt(i, 39) { i := add(i, 1) } {
+                // Copy 32 endpoints from 0x80 to 0x40 for contiguous layout
+                for { let i := 0 } lt(i, 32) { i := add(i, 1) } {
                     mstore(add(0x40, mul(i, 0x20)), mload(add(0x80, mul(i, 0x20))))
                 }
-                // keccak256(0x00, 32+32+39*32) = keccak256(0x00, 0x520)
-                let wotsPk := and(keccak256(0x00, 0x520), N_MASK)
+                // keccak256(0x00, 32+32+32*32) = keccak256(0x00, 0x440)
+                let wotsPk := and(keccak256(0x00, 0x440), N_MASK)
 
                 // ---- MERKLE AUTH PATH ----
                 let authOff := add(countOff, 4) // skip 4-byte count

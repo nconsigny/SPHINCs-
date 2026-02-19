@@ -7,9 +7,10 @@ import {TweakableHash} from "./TweakableHash.sol";
 /// @notice Implements WOTS+C from ePrint 2025/2203: the checksum chains are replaced
 ///         by a nonce `count` that the signer grinds until the base-w digit encoding
 ///         satisfies a fixed-sum constraint (S_w,n) and z zero-chain constraints.
-/// @dev For w=16: logW=4, len1=l+z (e.g. 39 for z=0). Digits extracted from 256-bit
-///      keccak256 digest (39*4=156 bits used). The verifier checks sum + zero constraints,
-///      then completes l chains. No checksum chains needed.
+/// @dev For w=16: logW=4, len1=ceil(n/logW)=32, l=len1-z. Digest is keccak256 output
+///      from which 32 base-16 digits are extracted (lower 128 bits used).
+///      The verifier checks sum + zero constraints, then completes l chains.
+///      No checksum chains needed.
 library WotsPlusC {
     /// @notice Verify a WOTS+C signature and return the reconstructed WOTS public key
     /// @param seed PK.seed

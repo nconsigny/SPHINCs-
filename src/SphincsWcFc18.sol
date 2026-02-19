@@ -5,7 +5,7 @@ import {TweakableHash} from "./TweakableHash.sol";
 import {WotsPlusC} from "./WotsPlusC.sol";
 
 /// @title SphincsWcFc18 - Tweaked SPHINCS+ Verifier: W+C + FORS+C (h=18, d=2, a=13, k=13)
-/// @notice Contract 2: WOTS+C with FORS+C. Sig: 4264 bytes. Target: ~284.9K gas.
+/// @notice Contract 2: WOTS+C with FORS+C. Sig: 4040 bytes.
 contract SphincsWcFc18 {
     uint256 constant N = 16;
     uint256 constant H = 18;
@@ -14,9 +14,9 @@ contract SphincsWcFc18 {
     uint256 constant A = 13;
     uint256 constant K = 13;
     uint256 constant W = 16;
-    uint256 constant L = 39;
-    uint256 constant LEN1 = 39;
-    uint256 constant TARGET_SUM = 292;
+    uint256 constant L = 32;           // ceil(128/4) = 32 message chains
+    uint256 constant LEN1 = 32;        // ceil(n_bits/log2(w)) = 32
+    uint256 constant TARGET_SUM = 240; // (w-1)*len1/2 = 15*32/2 = 240
     uint256 constant Z = 0;
 
     uint256 constant FORS_START = N;

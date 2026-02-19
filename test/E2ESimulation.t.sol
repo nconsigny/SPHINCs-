@@ -14,7 +14,7 @@ contract E2ESimulation is Test {
     bytes32 constant SEED = keccak256("pk_seed_for_e2e_test");
 
     // ===================================================================
-    //  Contract 2: W+C + FORS+C (h=18, d=2, a=13, k=13) - 4264 bytes
+    //  Contract 2: W+C + FORS+C (h=18, d=2, a=13, k=13) - 4040 bytes
     //  This is the simplest to build valid sigs for (no Octopus needed)
     // ===================================================================
 
@@ -23,7 +23,7 @@ contract E2ESimulation is Test {
         uint256 A = 13;
         uint256 D = 2;
         uint256 SUBTREE_H = 9;
-        uint256 L = 39;
+        uint256 L = 32;
         uint256 W = 16;
         uint256 N = 16;
 
@@ -85,7 +85,7 @@ contract E2ESimulation is Test {
         uint256 A = 13;
         uint256 D = 2;
         uint256 SH = 9;
-        uint256 L = 39;
+        uint256 L = 32;
         uint256 W = 16;
         uint256 N = 16;
 
@@ -174,8 +174,8 @@ contract E2ESimulation is Test {
 
             // Now we need to "sign" currentNode: find count such that
             // the digest d = keccak256(seed||adrs||currentNode||count) has
-            // base-16 digits summing to TARGET_SUM=292.
-            uint256 validCount = _findWotsCount(SEED, wotsAdrs, currentNode, L, 292);
+            // base-16 digits summing to TARGET_SUM=240.
+            uint256 validCount = _findWotsCount(SEED, wotsAdrs, currentNode, L, 240);
             wotsCounts[layer] = validCount;
 
             // Compute the digest with the valid count
@@ -287,7 +287,7 @@ contract E2ESimulation is Test {
         uint256 A = 13;
         uint256 D = 2;
         uint256 SH = 9;
-        uint256 L = 39;
+        uint256 L = 32;
         uint256 N = 16;
 
         // Pack signature: R + k secrets + (k-1) auth paths + d*(l chains + count + SH auth)
@@ -381,20 +381,20 @@ contract E2ESimulation is Test {
         // Hash output bytes: ~97% nonzero (uniformly distributed)
         // Count field bytes: ~75% nonzero (small integers)
 
-        uint256[3] memory sigSizes = [uint256(3704), uint256(4264), uint256(3596)];
+        uint256[3] memory sigSizes = [uint256(3480), uint256(4040), uint256(3260)];
         uint256[3] memory hashBytes;
         uint256[3] memory countBytes;
 
-        // C1: 16(R) + 13*16(secrets) + 121*16(auth) + 2*(39*16 + 4 + 9*16)
-        hashBytes[0] = 16 + 13 * 16 + 121 * 16 + 2 * (39 * 16 + 9 * 16);
+        // C1: 16(R) + 13*16(secrets) + 121*16(auth) + 2*(32*16 + 4 + 9*16)
+        hashBytes[0] = 16 + 13 * 16 + 121 * 16 + 2 * (32 * 16 + 9 * 16);
         countBytes[0] = 2 * 4;
 
-        // C2: 16(R) + 13*16(secrets) + 12*13*16(auth) + 2*(39*16 + 4 + 9*16)
-        hashBytes[1] = 16 + 13 * 16 + 12 * 13 * 16 + 2 * (39 * 16 + 9 * 16);
+        // C2: 16(R) + 13*16(secrets) + 12*13*16(auth) + 2*(32*16 + 4 + 9*16)
+        hashBytes[1] = 16 + 13 * 16 + 12 * 13 * 16 + 2 * (32 * 16 + 9 * 16);
         countBytes[1] = 2 * 4;
 
-        // C3: 16(R) + 11*16(secrets) + 68*16(auth) + 3*(39*16 + 4 + 9*16)
-        hashBytes[2] = 16 + 11 * 16 + 68 * 16 + 3 * (39 * 16 + 9 * 16);
+        // C3: 16(R) + 11*16(secrets) + 68*16(auth) + 3*(32*16 + 4 + 9*16)
+        hashBytes[2] = 16 + 11 * 16 + 68 * 16 + 3 * (32 * 16 + 9 * 16);
         countBytes[2] = 3 * 4;
 
         string[3] memory names = [
@@ -463,7 +463,7 @@ contract E2ESimulation is Test {
         bytes32 root = keccak256("dummy_root");
 
         if (contractId == 1) {
-            uint256 sigSize = 16 + 13 * 16 + 121 * 16 + 2 * (39 * 16 + 4 + 9 * 16);
+            uint256 sigSize = 16 + 13 * 16 + 121 * 16 + 2 * (32 * 16 + 4 + 9 * 16);
             SphincsWcPfp18 v = new SphincsWcPfp18(SEED, root);
             bytes memory sig = _randomSig(sigSize);
 
@@ -477,7 +477,7 @@ contract E2ESimulation is Test {
             _estimateTotal(sigSize, used, "C1");
 
         } else if (contractId == 2) {
-            uint256 sigSize = 16 + 13 * 16 + 12 * 13 * 16 + 2 * (39 * 16 + 4 + 9 * 16);
+            uint256 sigSize = 16 + 13 * 16 + 12 * 13 * 16 + 2 * (32 * 16 + 4 + 9 * 16);
 
             // Grind R until FORS+C forced-zero constraint passes
             // The contract reads R as bytes16 (top 16 bytes of packed sig), left-aligns it.
@@ -518,7 +518,7 @@ contract E2ESimulation is Test {
             _estimateTotal(sigSize, used, "C2");
 
         } else {
-            uint256 sigSize = 16 + 11 * 16 + 68 * 16 + 3 * (39 * 16 + 4 + 9 * 16);
+            uint256 sigSize = 16 + 11 * 16 + 68 * 16 + 3 * (32 * 16 + 4 + 9 * 16);
             SphincsWcPfp27 v = new SphincsWcPfp27(SEED, root);
             bytes memory sig = _randomSig(sigSize);
 
@@ -671,7 +671,7 @@ contract E2ESimulation is Test {
 
         // Calldata: sig + overhead (4B selector + 32B msg + 64B ABI = 100B)
         // Hash bytes ~97% nonzero, count bytes ~75% nonzero
-        uint256[3] memory sigSizes = [uint256(3704), uint256(4264), uint256(3596)];
+        uint256[3] memory sigSizes = [uint256(3480), uint256(4040), uint256(3260)];
 
         // Compute both standard and floor calldata for each contract
         uint256[3] memory floorCd;
@@ -703,13 +703,13 @@ contract E2ESimulation is Test {
         console.log("  Tweakable hash Th(1):     75 gas  (keccak: 30+6*3=48 + overhead)");
         console.log("  Tweakable hash Th(2):     93 gas  (keccak: 30+6*4=54 + overhead)");
         console.log("  Chain step (keccak256):  185 gas  (includes ADRS update)");
-        console.log("  WOTS+C verify (l=39):  94005 gas  (39 chains, avg 7.5 steps)");
+        console.log("  WOTS+C verify (l=32):  94005 gas  (32 chains, avg 7.5 steps)");
         console.log("  Merkle path (h=9):      3899 gas  (9 thPair calls)");
         console.log("  WOTS+C layer total:    97904 gas");
         console.log("");
 
         console.log("Contract 1: W+C + P+FP (h=18, d=2, a=13, k=13)");
-        console.log("  Signature:         3704 bytes");
+        console.log("  Signature:         3480 bytes");
         console.log("  EVM execution:   %d gas", c1_exec);
         console.log("    PORS+FP:       %d gas (Octopus, mMax=121)", c1_pors);
         console.log("    WOTS+C (x2):   %d gas", 2 * wotsPerLayer);
@@ -721,7 +721,7 @@ contract E2ESimulation is Test {
         console.log("");
 
         console.log("Contract 2: W+C + F+C (h=18, d=2, a=13, k=13)");
-        console.log("  Signature:         4264 bytes");
+        console.log("  Signature:         4040 bytes");
         console.log("  EVM execution:   %d gas", c2_exec);
         console.log("    FORS+C:        %d gas (auth paths)", c2_fors);
         console.log("    WOTS+C (x2):   %d gas", 2 * wotsPerLayer);
@@ -733,7 +733,7 @@ contract E2ESimulation is Test {
         console.log("");
 
         console.log("Contract 3: W+C + P+FP (h=27, d=3, a=11, k=11)");
-        console.log("  Signature:         3596 bytes");
+        console.log("  Signature:         3260 bytes");
         console.log("  EVM execution:   %d gas", c3_exec);
         console.log("    PORS+FP:       %d gas (Octopus, mMax=68)", c3_pors);
         console.log("    WOTS+C (x3):   %d gas", 3 * wotsPerLayer);
@@ -748,11 +748,11 @@ contract E2ESimulation is Test {
         console.log("  -------------------------------------------------------");
         console.log("  Contract  Sig(B)  Exec     Floor CD   Total    Paper");
         console.log("  -------------------------------------------------------");
-        console.log("  C1 P+FP   3704   %dK  %dK   %dK   249.7K",
+        console.log("  C1 P+FP   3480   %dK  %dK   %dK   249.7K",
             c1_exec / 1000, floorCd[0] / 1000, totalTx[0] / 1000);
-        console.log("  C2 F+C    4264   %dK  %dK   %dK   284.9K",
+        console.log("  C2 F+C    4040   %dK  %dK   %dK   284.9K",
             c2_exec / 1000, floorCd[1] / 1000, totalTx[1] / 1000);
-        console.log("  C3 P+FP   3596   %dK  %dK   %dK   251.9K",
+        console.log("  C3 P+FP   3260   %dK  %dK   %dK   251.9K",
             c3_exec / 1000, floorCd[2] / 1000, totalTx[2] / 1000);
         console.log("  -------------------------------------------------------");
         console.log("");

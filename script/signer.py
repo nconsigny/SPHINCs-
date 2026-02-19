@@ -34,19 +34,19 @@ ADRS_PORS = 5
 
 W = 16
 LOG_W = 4
-L = 39
-LEN1 = 39
-TARGET_SUM = 292
+L = 32
+LEN1 = 32
+TARGET_SUM = 240
 Z = 0
 W_MASK = 0xF
 
 VARIANTS = {
     "c1": {"h": 18, "d": 2, "k": 13, "a": 13, "m_max": 121, "scheme": "pors",
-            "subtree_h": 9, "sig_size": 3704},
+            "subtree_h": 9, "sig_size": 3480},
     "c2": {"h": 18, "d": 2, "k": 13, "a": 13, "m_max": 0,   "scheme": "fors",
-            "subtree_h": 9, "sig_size": 4264},
+            "subtree_h": 9, "sig_size": 4040},
     "c3": {"h": 27, "d": 3, "k": 11, "a": 11, "m_max": 68,  "scheme": "pors",
-            "subtree_h": 9, "sig_size": 3596},
+            "subtree_h": 9, "sig_size": 3260},
 }
 
 # ============================================================
@@ -496,7 +496,7 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
         for j in range(n_leaves):
             if j in tree_pos_to_sig_pos:
                 sp = tree_pos_to_sig_pos[j]
-                leaf_adrs = make_adrs(0, 0, ADRS_PORS, 0, 0, 0, sp)
+                leaf_adrs = make_adrs(0, 0, ADRS_PORS, 0, 0, 0, j)
                 secret = pors_secret(sk_seed, sp)
                 leaf = th(seed, leaf_adrs, secret)
             else:

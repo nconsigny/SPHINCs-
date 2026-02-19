@@ -73,11 +73,11 @@ contract AsmBenchmark is Test {
     }
 
     // ================================================================
-    //  Contract 2: W+C + FORS+C (h=18, d=2) — 4264 bytes
+    //  Contract 2: W+C + FORS+C (h=18, d=2) — 4040 bytes
     // ================================================================
 
     function test_C2_Solidity_vs_Asm() public {
-        uint256 sigSize = 4264;
+        uint256 sigSize = 4040;
         bytes32 message = keccak256("c2_bench_msg");
 
         // Grind R for FORS+C forced-zero constraint (same as E2ESimulation)
@@ -122,11 +122,11 @@ contract AsmBenchmark is Test {
     }
 
     // ================================================================
-    //  Contract 1: W+C + P+FP (h=18, d=2) — 3704 bytes
+    //  Contract 1: W+C + P+FP (h=18, d=2) — 3480 bytes
     // ================================================================
 
     function test_C1_Solidity_vs_Asm() public {
-        uint256 sigSize = 3704;
+        uint256 sigSize = 3480;
         bytes32 message = keccak256("c1_bench_msg");
         bytes memory sig = _randomSig(sigSize);
 
@@ -148,11 +148,11 @@ contract AsmBenchmark is Test {
     }
 
     // ================================================================
-    //  Contract 3: W+C + P+FP (h=27, d=3) — 3596 bytes
+    //  Contract 3: W+C + P+FP (h=27, d=3) — 3260 bytes
     // ================================================================
 
     function test_C3_Solidity_vs_Asm() public {
-        uint256 sigSize = 3596;
+        uint256 sigSize = 3260;
         bytes32 message = keccak256("c3_bench_msg");
         bytes memory sig = _randomSig(sigSize);
 
@@ -183,7 +183,7 @@ contract AsmBenchmark is Test {
         bytes32 msg3 = keccak256("full_cmp_c3");
 
         // C1
-        bytes memory sig1 = _randomSig(3704);
+        bytes memory sig1 = _randomSig(3480);
         SphincsWcPfp18 sol1 = new SphincsWcPfp18(SEED, ROOT);
         SphincsWcPfp18Asm asm1 = new SphincsWcPfp18Asm(SEED, ROOT);
         uint256 g; uint256 solG1; uint256 asmG1;
@@ -191,7 +191,7 @@ contract AsmBenchmark is Test {
         g = gasleft(); try asm1.verify(msg1, sig1) {} catch {} asmG1 = g - gasleft();
 
         // C2 (with FORS+C grind)
-        bytes memory sig2 = _randomSig(4264);
+        bytes memory sig2 = _randomSig(4040);
         {
             for (uint256 nonce = 0; nonce < 100000; nonce++) {
                 bytes32 raw = keccak256(abi.encodePacked("R_full_cmp_c2", nonce));
@@ -210,7 +210,7 @@ contract AsmBenchmark is Test {
         g = gasleft(); try asm2.verify(msg2, sig2) {} catch {} asmG2 = g - gasleft();
 
         // C3
-        bytes memory sig3 = _randomSig(3596);
+        bytes memory sig3 = _randomSig(3260);
         SphincsWcPfp27 sol3 = new SphincsWcPfp27(SEED, ROOT);
         SphincsWcPfp27Asm asm3 = new SphincsWcPfp27Asm(SEED, ROOT);
         uint256 solG3; uint256 asmG3;
@@ -218,9 +218,9 @@ contract AsmBenchmark is Test {
         g = gasleft(); try asm3.verify(msg3, sig3) {} catch {} asmG3 = g - gasleft();
 
         // Calldata
-        (uint256 stdCd1, uint256 floorCd1) = _calldataGas(3704);
-        (uint256 stdCd2, uint256 floorCd2) = _calldataGas(4264);
-        (uint256 stdCd3, uint256 floorCd3) = _calldataGas(3596);
+        (uint256 stdCd1, uint256 floorCd1) = _calldataGas(3480);
+        (uint256 stdCd2, uint256 floorCd2) = _calldataGas(4040);
+        (uint256 stdCd3, uint256 floorCd3) = _calldataGas(3260);
 
         console.log("================================================================");
         console.log("  FULL ASM vs SOLIDITY COMPARISON");
@@ -229,9 +229,9 @@ contract AsmBenchmark is Test {
         console.log("");
         console.log("  Contract  Sig(B)  Sol Exec    Asm Exec    Speedup");
         console.log("  -----------------------------------------------------------");
-        console.log("  C1 P+FP   3704    %d    %d    %dx", solG1, asmG1, solG1 / (asmG1 > 0 ? asmG1 : 1));
-        console.log("  C2 F+C    4264    %d    %d    %dx", solG2, asmG2, solG2 / (asmG2 > 0 ? asmG2 : 1));
-        console.log("  C3 P+FP   3596    %d    %d    %dx", solG3, asmG3, solG3 / (asmG3 > 0 ? asmG3 : 1));
+        console.log("  C1 P+FP   3480    %d    %d    %dx", solG1, asmG1, solG1 / (asmG1 > 0 ? asmG1 : 1));
+        console.log("  C2 F+C    4040    %d    %d    %dx", solG2, asmG2, solG2 / (asmG2 > 0 ? asmG2 : 1));
+        console.log("  C3 P+FP   3260    %d    %d    %dx", solG3, asmG3, solG3 / (asmG3 > 0 ? asmG3 : 1));
         console.log("");
 
         // EIP-7623 totals
@@ -240,7 +240,7 @@ contract AsmBenchmark is Test {
         uint256[3] memory floors  = [floorCd1, floorCd2, floorCd3];
         uint256[3] memory stds    = [stdCd1, stdCd2, stdCd3];
         string[3] memory names = ["C1 P+FP", "C2 F+C ", "C3 P+FP"];
-        uint256[3] memory papers  = [uint256(249700), uint256(284900), uint256(251900)];
+        uint256[3] memory papers  = [uint256(0), uint256(0), uint256(0)]; // TBD: recalculate with corrected WOTS+C params
 
         console.log("  EIP-7623 Transaction Gas:");
         console.log("  -----------------------------------------------------------");
