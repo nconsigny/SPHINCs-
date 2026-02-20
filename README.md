@@ -40,8 +40,8 @@ Both signatures must be valid. Compromising ECDSA alone is not enough — a quan
 
 | Variant | Scheme | Sig size | ASM verify gas | Security |
 |---|---|---|---|---|
-| C2 | FORS+C h=18 d=2 | 4264 bytes | ~190K | 128-bit post-quantum |
-| C3 | PORS+FP h=27 d=3 | 3596 bytes | ~260K | 128-bit post-quantum |
+| C2 | FORS+C h=18 d=2 | 4264 bytes | ~190K | 128-bit |
+| C3 | PORS+FP h=27 d=3 | 3596 bytes | ~260K | 128-bit |
 
 Full ERC-4337 transaction cost (including calldata, EntryPoint overhead, ECDSA, execute): ~412K (C2) / ~444K (C3).
 
