@@ -74,6 +74,14 @@ library PorsFP {
         uint256 count = 0;
         uint256 nonce = 0;
 
+        // Use bitmap for O(k) duplicate detection when totalLeaves is small.
+        uint256 bitmapSize = (totalLeaves + 255) >> 8;
+        bool useBitmap = bitmapSize <= 256;
+        uint256[] memory bitmap;
+        if (useBitmap) {
+            bitmap = new uint256[](bitmapSize);
+        }
+
         // We may need more bits than a single digest provides
         // Use keccak256(digest || nonce) to extend
         while (count < k) {
@@ -91,17 +99,30 @@ library PorsFP {
             for (uint256 b = 0; b + bitsPerIndex <= 256 && count < k; b += bitsPerIndex) {
                 uint256 candidate = (bits >> b) & ((1 << bitsPerIndex) - 1);
                 if (candidate < totalLeaves) {
-                    // Check distinctness
-                    bool dup = false;
-                    for (uint256 j = 0; j < count; j++) {
-                        if (indices[j] == candidate) {
-                            dup = true;
-                            break;
+                    if (useBitmap) {
+                        // Check distinctness using bitmap
+                        uint256 wordIdx = candidate >> 8;
+                        uint256 bitIdx = candidate & 0xFF;
+                        uint256 mask = 1 << bitIdx;
+
+                        if (bitmap[wordIdx] & mask == 0) {
+                            bitmap[wordIdx] |= mask;
+                            indices[count] = candidate;
+                            count++;
                         }
-                    }
-                    if (!dup) {
-                        indices[count] = candidate;
-                        count++;
+                    } else {
+                        // Fallback to O(k^2) duplicate detection to avoid large bitmap allocation.
+                        bool dup = false;
+                        for (uint256 j = 0; j < count; j++) {
+                            if (indices[j] == candidate) {
+                                dup = true;
+                                break;
+                            }
+                        }
+                        if (!dup) {
+                            indices[count] = candidate;
+                            count++;
+                        }
                     }
                 }
             }
@@ -219,6 +240,7 @@ library PorsFP {
         }
 
         require(currentCount == 1 && currentIndices[0] == 0, "PORS+FP: root not reached");
+        require(authIdx == authSet.length, "PORS+FP: auth set not fully consumed");
         root = currentHashes[0];
     }
 }
