@@ -26,7 +26,7 @@ EOA (ECDSA key)
             ├── pkSeed + pkRoot → stored in SphincsWc*Asm verifier (on-chain)
             └── sk_seed         → never stored, rederived per signing session
 
-UserOp signature = abi.encode(ecdsaSig[65], sphincsSig[3596–4264])
+UserOp signature = abi.encode(ecdsaSig[65], sphincsSig[3740–4296])
 
 EntryPoint.handleOps()
     └── SphincsAccount._validateSignature()
@@ -40,10 +40,44 @@ Both signatures must be valid. Compromising ECDSA alone is not enough — a quan
 
 | Variant | Scheme | Sig size | ASM verify gas | Security |
 |---|---|---|---|---|
-| C2 | FORS+C h=18 d=2 | 4264 bytes | ~190K | 128-bit post-quantum |
-| C3 | PORS+FP h=27 d=3 | 3596 bytes | ~260K | 128-bit post-quantum |
+| C2 | FORS+C h=18 d=2 | 4040 bytes | ~190K | 128-bit post-quantum |
+| C3 | PORS+FP h=27 d=3 | 4188 bytes | ~260K | 128-bit post-quantum |
+| C4 | FORS+C h=30 d=3 | 3740 bytes | ~204K | ~122-bit at `q = 2^20` |
 
 Full ERC-4337 transaction cost (including calldata, EntryPoint overhead, ECDSA, execute): ~412K (C2) / ~444K (C3).
+
+This branch also contains a **Verity frontier checkpoint for C4**, but the branch-local
+`SphincsAccountFactory` is still wired only for variants `2` and `3`. In other words:
+
+- `c2` and `c3`: ERC-4337 account flow present on this branch
+- `c4`: verifier contracts, signer support, E2E test, and Verity/Yul rewrite present
+- `c4`: not yet integrated into the factory/account deployment path on this branch
+
+## Verity C4 Checkpoint
+
+This branch adds a focused Lean/Verity package for the C4 verifier:
+
+- `src/SphincsWcFc30.sol`
+- `src/SphincsWcFc30Asm.sol`
+- `Sphincs/C4/Circuit.lean`
+- `Sphincs/C4/Proofs.lean`
+- `Sphincs/C4/Frontier.lean`
+- `Sphincs/C4/VerityProofs.lean`
+- `EmitC4VerityYul.lean`
+
+The generated Verity artifacts are committed under:
+
+- `proof-artifacts/c4-verity/SphincsC4VerifierFrontier.yul`
+- `proof-artifacts/c4-verity/SphincsC4VerifierFrontier.trust.json`
+- `proof-artifacts/c4-verity/SphincsC4VerifierFrontier.layout.json`
+- `proof-artifacts/c4-verity/SphincsC4VerifierFrontier.assumptions.json`
+
+Current proof boundary:
+
+- proved/modelled: C4 signature byte layout, constructor storage binding, verifier boundary shape, top-hash frontier skeleton
+- still assumed: calldata-layout refinement, full top-hash equivalence, and the remaining FORS+C / WOTS+C / hypertree loop refinement
+
+This is an M2/M3 checkpoint, not a full cryptographic bytecode proof.
 
 ## Key Derivation
 
@@ -94,6 +128,13 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install eth-account eth-abi requests pycryptodome
 ```
 
+If you want to build the Verity package on this branch, clone Verity to the local path expected by
+`lakefile.lean`:
+
+```bash
+git clone https://github.com/lfglabs-dev/verity /tmp/verity-ref
+```
+
 ## Environment
 
 Create `.env` in the project root:
@@ -136,6 +177,15 @@ python3 script/send_userop.py send \
 ## Tests
 
 ```bash
-forge test                          # all 23 tests
+forge test
 forge test --match-contract AsmBenchmark -vv   # gas benchmarks
+forge test --match-path test/E2EVerification.t.sol --match-test test_C4_E2E
+```
+
+## Verity Build
+
+```bash
+cd /tmp/SPHINCs-verityProof
+lake build Sphincs EmitC4VerityYul
+lake env lean --run EmitC4VerityYul.lean
 ```
