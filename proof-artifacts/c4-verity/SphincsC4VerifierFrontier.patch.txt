@@ -1,0 +1,184 @@
+{ patched := [Compiler.Yul.YulStmt.block
+                [Compiler.Yul.YulStmt.let_
+                   "__has_selector"
+                   (Compiler.Yul.YulExpr.call
+                     "iszero"
+                     [Compiler.Yul.YulExpr.call
+                        "lt"
+                        [Compiler.Yul.YulExpr.call "calldatasize" [], Compiler.Yul.YulExpr.lit 4]]),
+                 Compiler.Yul.YulStmt.if_
+                   (Compiler.Yul.YulExpr.call "iszero" [Compiler.Yul.YulExpr.ident "__has_selector"])
+                   [Compiler.Yul.YulStmt.expr
+                      (Compiler.Yul.YulExpr.call "revert" [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])],
+                 Compiler.Yul.YulStmt.if_
+                   (Compiler.Yul.YulExpr.ident "__has_selector")
+                   [Compiler.Yul.YulStmt.switch
+                      (Compiler.Yul.YulExpr.call
+                        "shr"
+                        [Compiler.Yul.YulExpr.lit 224,
+                         Compiler.Yul.YulExpr.call "calldataload" [Compiler.Yul.YulExpr.lit 0]])
+                      [(629859714,
+                        [Compiler.Yul.YulStmt.comment "verify()",
+                         Compiler.Yul.YulStmt.if_
+                           (Compiler.Yul.YulExpr.call "callvalue" [])
+                           [Compiler.Yul.YulStmt.expr
+                              (Compiler.Yul.YulExpr.call
+                                "revert"
+                                [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])],
+                         Compiler.Yul.YulStmt.if_
+                           (Compiler.Yul.YulExpr.call
+                             "lt"
+                             [Compiler.Yul.YulExpr.call "calldatasize" [], Compiler.Yul.YulExpr.lit 68])
+                           [Compiler.Yul.YulStmt.expr
+                              (Compiler.Yul.YulExpr.call
+                                "revert"
+                                [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])],
+                         Compiler.Yul.YulStmt.if_
+                           (Compiler.Yul.YulExpr.call
+                             "lt"
+                             [Compiler.Yul.YulExpr.call "calldatasize" [], Compiler.Yul.YulExpr.lit 68])
+                           [Compiler.Yul.YulStmt.expr
+                              (Compiler.Yul.YulExpr.call
+                                "revert"
+                                [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])],
+                         Compiler.Yul.YulStmt.let_
+                           "message"
+                           (Compiler.Yul.YulExpr.call "calldataload" [Compiler.Yul.YulExpr.lit 4]),
+                         Compiler.Yul.YulStmt.let_
+                           "sig_offset"
+                           (Compiler.Yul.YulExpr.call "calldataload" [Compiler.Yul.YulExpr.lit 36]),
+                         Compiler.Yul.YulStmt.if_
+                           (Compiler.Yul.YulExpr.call
+                             "lt"
+                             [Compiler.Yul.YulExpr.ident "sig_offset", Compiler.Yul.YulExpr.lit 64])
+                           [Compiler.Yul.YulStmt.expr
+                              (Compiler.Yul.YulExpr.call
+                                "revert"
+                                [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])],
+                         Compiler.Yul.YulStmt.let_
+                           "sig_abs_offset"
+                           (Compiler.Yul.YulExpr.call
+                             "add"
+                             [Compiler.Yul.YulExpr.lit 4, Compiler.Yul.YulExpr.ident "sig_offset"]),
+                         Compiler.Yul.YulStmt.if_
+                           (Compiler.Yul.YulExpr.call
+                             "gt"
+                             [Compiler.Yul.YulExpr.ident "sig_abs_offset",
+                              Compiler.Yul.YulExpr.call
+                                "sub"
+                                [Compiler.Yul.YulExpr.call "calldatasize" [], Compiler.Yul.YulExpr.lit 32]])
+                           [Compiler.Yul.YulStmt.expr
+                              (Compiler.Yul.YulExpr.call
+                                "revert"
+                                [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])],
+                         Compiler.Yul.YulStmt.let_
+                           "sig_length"
+                           (Compiler.Yul.YulExpr.call "calldataload" [Compiler.Yul.YulExpr.ident "sig_abs_offset"]),
+                         Compiler.Yul.YulStmt.let_
+                           "sig_tail_head_end"
+                           (Compiler.Yul.YulExpr.call
+                             "add"
+                             [Compiler.Yul.YulExpr.ident "sig_abs_offset", Compiler.Yul.YulExpr.lit 32]),
+                         Compiler.Yul.YulStmt.let_
+                           "sig_tail_remaining"
+                           (Compiler.Yul.YulExpr.call
+                             "sub"
+                             [Compiler.Yul.YulExpr.call "calldatasize" [],
+                              Compiler.Yul.YulExpr.ident "sig_tail_head_end"]),
+                         Compiler.Yul.YulStmt.if_
+                           (Compiler.Yul.YulExpr.call
+                             "gt"
+                             [Compiler.Yul.YulExpr.ident "sig_length", Compiler.Yul.YulExpr.ident "sig_tail_remaining"])
+                           [Compiler.Yul.YulStmt.expr
+                              (Compiler.Yul.YulExpr.call
+                                "revert"
+                                [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])],
+                         Compiler.Yul.YulStmt.let_ "sig_data_offset" (Compiler.Yul.YulExpr.ident "sig_tail_head_end"),
+                         Compiler.Yul.YulStmt.let_ "sigLenAnchor" (Compiler.Yul.YulExpr.lit 68),
+                         Compiler.Yul.YulStmt.let_ "sigBaseAnchor" (Compiler.Yul.YulExpr.lit 100),
+                         Compiler.Yul.YulStmt.let_ "inputLen" (Compiler.Yul.YulExpr.lit 128),
+                         Compiler.Yul.YulStmt.let_
+                           "sigLen"
+                           (Compiler.Yul.YulExpr.call "calldataload" [Compiler.Yul.YulExpr.lit 68]),
+                         Compiler.Yul.YulStmt.if_
+                           (Compiler.Yul.YulExpr.call
+                             "iszero"
+                             [Compiler.Yul.YulExpr.call
+                                "eq"
+                                [Compiler.Yul.YulExpr.ident "sigLen", Compiler.Yul.YulExpr.lit 3740]])
+                           [Compiler.Yul.YulStmt.expr
+                              (Compiler.Yul.YulExpr.call
+                                "mstore"
+                                [Compiler.Yul.YulExpr.lit 0,
+                                 Compiler.Yul.YulExpr.hex
+                                   3963877391197344453575983046348115674221700746820753546331534351508065746944]),
+                            Compiler.Yul.YulStmt.expr
+                              (Compiler.Yul.YulExpr.call
+                                "mstore"
+                                [Compiler.Yul.YulExpr.lit 4, Compiler.Yul.YulExpr.lit 32]),
+                            Compiler.Yul.YulStmt.expr
+                              (Compiler.Yul.YulExpr.call
+                                "mstore"
+                                [Compiler.Yul.YulExpr.lit 36, Compiler.Yul.YulExpr.lit 18]),
+                            Compiler.Yul.YulStmt.expr
+                              (Compiler.Yul.YulExpr.call
+                                "mstore"
+                                [Compiler.Yul.YulExpr.lit 68,
+                                 Compiler.Yul.YulExpr.hex
+                                   33214008156304899519981230437682874387184308421256086808908086100849852416000]),
+                            Compiler.Yul.YulStmt.expr
+                              (Compiler.Yul.YulExpr.call
+                                "revert"
+                                [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 100])],
+                         Compiler.Yul.YulStmt.let_
+                           "rWord"
+                           (Compiler.Yul.YulExpr.call
+                             "and"
+                             [Compiler.Yul.YulExpr.call "calldataload" [Compiler.Yul.YulExpr.lit 100],
+                              Compiler.Yul.YulExpr.lit
+                                115792089237316195423570985008687907852929702298719625575994209400481361428480]),
+                         Compiler.Yul.YulStmt.expr
+                           (Compiler.Yul.YulExpr.call
+                             "mstore"
+                             [Compiler.Yul.YulExpr.lit 0,
+                              Compiler.Yul.YulExpr.call "sload" [Compiler.Yul.YulExpr.lit 0]]),
+                         Compiler.Yul.YulStmt.expr
+                           (Compiler.Yul.YulExpr.call
+                             "mstore"
+                             [Compiler.Yul.YulExpr.lit 32,
+                              Compiler.Yul.YulExpr.call "sload" [Compiler.Yul.YulExpr.lit 1]]),
+                         Compiler.Yul.YulStmt.expr
+                           (Compiler.Yul.YulExpr.call
+                             "mstore"
+                             [Compiler.Yul.YulExpr.lit 64, Compiler.Yul.YulExpr.ident "rWord"]),
+                         Compiler.Yul.YulStmt.expr
+                           (Compiler.Yul.YulExpr.call
+                             "mstore"
+                             [Compiler.Yul.YulExpr.lit 96, Compiler.Yul.YulExpr.ident "message"]),
+                         Compiler.Yul.YulStmt.let_
+                           "digest"
+                           (Compiler.Yul.YulExpr.call
+                             "keccak256"
+                             [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 128]),
+                         Compiler.Yul.YulStmt.let_
+                           "htIdx"
+                           (Compiler.Yul.YulExpr.call
+                             "and"
+                             [Compiler.Yul.YulExpr.call
+                                "shr"
+                                [Compiler.Yul.YulExpr.lit 112, Compiler.Yul.YulExpr.ident "digest"],
+                              Compiler.Yul.YulExpr.lit 1073741823]),
+                         Compiler.Yul.YulStmt.expr
+                           (Compiler.Yul.YulExpr.call
+                             "mstore"
+                             [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 1]),
+                         Compiler.Yul.YulStmt.expr
+                           (Compiler.Yul.YulExpr.call
+                             "return"
+                             [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 32])])]
+                      (some [Compiler.Yul.YulStmt.expr
+                          (Compiler.Yul.YulExpr.call
+                            "revert"
+                            [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])])]]],
+  iterations := 0,
+  manifest := [] }

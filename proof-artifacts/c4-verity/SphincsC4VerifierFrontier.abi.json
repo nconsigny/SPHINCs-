@@ -1,0 +1,4 @@
+[
+  {"type": "constructor", "inputs": [{"name": "seed", "type": "bytes32"}, {"name": "root", "type": "bytes32"}], "stateMutability": "nonpayable"},
+  {"type": "function", "name": "verify", "inputs": [{"name": "message", "type": "bytes32"}, {"name": "sig", "type": "bytes"}], "outputs": [{"name": "", "type": "bool"}], "stateMutability": "view"}
+]
