@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 /// @title SphincsWcPfp27Asm - Assembly-optimized SPHINCS+ Verifier: W+C + P+FP
-/// @notice Contract 3 Asm: h=27, d=3, a=11, k=11, w=16, l=32, S_{w,n}=240, z=0, mMax=68
-///         Sig: 3260 bytes. Same external interface as SphincsWcPfp27.
+/// @notice Contract 3 Asm: h=27, d=3, a=11, k=11, treeHeight=15, w=16, l=32, S_{w,n}=240, z=0, mMax=126
+///         Sig: 4188 bytes. Same external interface as SphincsWcPfp27.
 contract SphincsWcPfp27Asm {
     bytes32 public pkSeed;  // slot 0
     bytes32 public pkRoot;  // slot 1
@@ -19,9 +19,9 @@ contract SphincsWcPfp27Asm {
             let SIG_BASE := 0x64
 
             // SIG_SIZE = N + K*N + mMax*N + D*(L*N + 4 + SH*N)
-            //          = 16 + 11*16 + 68*16 + 3*(32*16+4+9*16)
-            //          = 16 + 176 + 1088 + 3*660 = 1280 + 1980 = 3260
-            if iszero(eq(calldataload(0x44), 3260)) {
+            //          = 16 + 11*16 + 126*16 + 3*(32*16+4+9*16)
+            //          = 16 + 176 + 2016 + 3*660 = 2208 + 1980 = 4188
+            if iszero(eq(calldataload(0x44), 4188)) {
                 mstore(0x00, 0x08c379a000000000000000000000000000000000000000000000000000000000)
                 mstore(0x04, 0x20)
                 mstore(0x24, 18)
@@ -45,15 +45,15 @@ contract SphincsWcPfp27Asm {
             let htIdx := and(shr(121, digest), 0x7FFFFFF) // 2^27-1
 
             // ============================================================
-            // PORS+FP: K=11, A=TREE_HEIGHT=11, mMax=68
-            // PORS_START=16, AUTH_START=16+11*16=192, HT_START=192+68*16=1280
+            // PORS+FP: K=11, TREE_HEIGHT=15, mMax=126
+            // PORS_START=16, AUTH_START=16+11*16=192, HT_START=192+126*16=2208
             // ============================================================
 
             // Extract 11 distinct indices from digest
             let INDICES_BASE := 0x240 // 0x80 + 11*32 = 0x80 + 0x160
             {
-                let totalLeaves := 2048 // 2^11
-                let idxMask := 0x7FF    // 2^11-1
+                let totalLeaves := 32768 // 2^15
+                let idxMask := 0x7FFF    // 2^15-1
                 let count := 0
                 let nonce := 0
 
@@ -63,7 +63,7 @@ contract SphincsWcPfp27Asm {
                     let extended := keccak256(0x20, 0x40)
 
                     let bits := extended
-                    for { let b := 0 } and(lt(add(b, 11), 257), lt(count, 11)) { b := add(b, 11) } {
+                    for { let b := 0 } and(lt(add(b, 15), 257), lt(count, 11)) { b := add(b, 15) } {
                         let candidate := and(shr(b, bits), idxMask)
                         if lt(candidate, totalLeaves) {
                             let dup := 0
@@ -115,12 +115,10 @@ contract SphincsWcPfp27Asm {
                 mstore(add(OCTOPUS, add(mul(i, 0x40), 0x20)), mload(add(0x80, mul(i, 0x20))))
             }
 
-            mstore(0x00, seed) // restore seed
-
             let currentCount := 11
             let authIdx := 0
 
-            for { let level := 0 } lt(level, 11) { level := add(level, 1) } {
+            for { let level := 0 } lt(level, 15) { level := add(level, 1) } {
                 let newCount := 0
                 let j := 0
 
@@ -152,6 +150,7 @@ contract SphincsWcPfp27Asm {
                         j := add(j, 2)
                     }
                     default {
+                        if iszero(lt(authIdx, 126)) { revert(0, 0) }
                         // AUTH_START=192 for C3
                         let sibHash := and(calldataload(add(SIG_BASE, add(192, mul(authIdx, 16)))), N_MASK)
                         authIdx := add(authIdx, 1)
@@ -179,7 +178,7 @@ contract SphincsWcPfp27Asm {
             // ============================================================
             let currentNode := porsPk
             let idxTree := htIdx
-            let sigOff := 1280 // HT_START = 192 + 68*16
+            let sigOff := 2208 // HT_START = 192 + 126*16
 
             mstore(0x540, idxTree)
             mstore(0x560, sigOff)
@@ -196,7 +195,6 @@ contract SphincsWcPfp27Asm {
                 let countOff := add(sigOff, 512)
                 let count := shr(224, calldataload(add(SIG_BASE, countOff)))
 
-                mstore(0x00, seed)
                 mstore(0x20, wotsAdrs)
                 mstore(0x40, currentNode)
                 mstore(0x60, count)

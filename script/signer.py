@@ -5,7 +5,7 @@ Produces valid signatures verifiable by the Solidity/Assembly contracts.
 
 Usage:
     python3 script/signer.py <variant> <message_hex>
-    variant: c1 | c2 | c3
+    variant: c1 | c2 | c3 | c4
     message_hex: 0x-prefixed 32-byte hex
 
 Output: ABI-encoded (bytes32 seed, bytes32 root, bytes sig) as hex to stdout.
@@ -41,12 +41,14 @@ Z = 0
 W_MASK = 0xF
 
 VARIANTS = {
-    "c1": {"h": 18, "d": 2, "k": 13, "a": 13, "m_max": 121, "scheme": "pors",
-            "subtree_h": 9, "sig_size": 3480},
+    "c1": {"h": 18, "d": 2, "k": 13, "a": 13, "tree_height": 17, "m_max": 172, "scheme": "pors",
+            "subtree_h": 9, "sig_size": 4296},
     "c2": {"h": 18, "d": 2, "k": 13, "a": 13, "m_max": 0,   "scheme": "fors",
             "subtree_h": 9, "sig_size": 4040},
-    "c3": {"h": 27, "d": 3, "k": 11, "a": 11, "m_max": 68,  "scheme": "pors",
-            "subtree_h": 9, "sig_size": 3260},
+    "c3": {"h": 27, "d": 3, "k": 11, "a": 11, "tree_height": 15, "m_max": 126,  "scheme": "pors",
+            "subtree_h": 9, "sig_size": 4188},
+    "c4": {"h": 30, "d": 3, "k": 8,  "a": 14, "m_max": 0,   "scheme": "fors",
+            "subtree_h": 10, "sig_size": 3740},
 }
 
 # ============================================================
@@ -429,6 +431,7 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
     d = cfg["d"]
     k = cfg["k"]
     a = cfg["a"]
+    tree_height = cfg.get("tree_height", a)
     m_max = cfg["m_max"]
     subtree_h = cfg["subtree_h"]
     scheme = cfg["scheme"]
@@ -456,7 +459,7 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
     if scheme == "fors":
         R, digest = grind_R_fors(seed, pk_root, message_int, k, a)
     else:
-        R, digest = grind_R_pors(seed, pk_root, message_int, k, a, m_max)
+        R, digest = grind_R_pors(seed, pk_root, message_int, k, tree_height, m_max)
 
     # ================================================================
     # STEP 3: Decompose hypertree path
@@ -483,15 +486,15 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
         fors_secrets, fors_auth_paths, bottom_pk = fors_sign_full(seed, sk_seed, digest, k, a)
     else:
         eprint("  Signing PORS+FP...")
-        sorted_indices = extract_pors_indices(digest, k, a)
-        unsorted_indices = _extract_pors_unsorted(digest, k, a)
+        sorted_indices = extract_pors_indices(digest, k, tree_height)
+        unsorted_indices = _extract_pors_unsorted(digest, k, tree_height)
 
         # Build PORS tree (single tree of height a)
         tree_pos_to_sig_pos = {}
         for sp, tp in enumerate(unsorted_indices):
             tree_pos_to_sig_pos[tp] = sp
 
-        n_leaves = 1 << a
+        n_leaves = 1 << tree_height
         full_leaves = []
         for j in range(n_leaves):
             if j in tree_pos_to_sig_pos:
@@ -504,7 +507,7 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
             full_leaves.append(leaf)
 
         pors_tree_nodes = [full_leaves]
-        for hh in range(a):
+        for hh in range(tree_height):
             prev = pors_tree_nodes[hh]
             level = []
             for idx in range(0, len(prev), 2):
@@ -513,11 +516,11 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
                 level.append(th_pair(seed, adrs, prev[idx], prev[idx + 1]))
             pors_tree_nodes.append(level)
 
-        pors_auth_hashes = compute_octopus_auth_set(pors_tree_nodes, sorted_indices, a)
+        pors_auth_hashes = compute_octopus_auth_set(pors_tree_nodes, sorted_indices, tree_height)
         assert len(pors_auth_hashes) <= m_max, \
             f"Auth set {len(pors_auth_hashes)} > {m_max}"
         pors_secrets = [pors_secret(sk_seed, i) for i in range(k)]
-        bottom_pk = pors_tree_nodes[a][0]
+        bottom_pk = pors_tree_nodes[tree_height][0]
 
     # ================================================================
     # STEP 5: Sign Hypertree
@@ -653,14 +656,14 @@ def abi_encode(seed, root, sig):
 
 def main():
     if len(sys.argv) != 3:
-        eprint("Usage: python3 signer.py <c1|c2|c3> <0x_message_hex>")
+        eprint("Usage: python3 signer.py <c1|c2|c3|c4> <0x_message_hex>")
         sys.exit(1)
 
     variant = sys.argv[1]
     msg_hex = sys.argv[2]
 
     if variant not in VARIANTS:
-        eprint(f"Unknown variant: {variant}. Use c1, c2, or c3.")
+        eprint(f"Unknown variant: {variant}. Use c1, c2, c3, or c4.")
         sys.exit(1)
 
     if msg_hex.startswith("0x"):

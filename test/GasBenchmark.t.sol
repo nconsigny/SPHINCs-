@@ -119,7 +119,7 @@ contract GasBenchmark is Test {
         // Standard pricing:        16 gas/nonzero byte,  4 gas/zero byte
         // Hash output bytes: ~97% nonzero (uniformly distributed)
 
-        uint256[3] memory sigSizes = [uint256(3480), uint256(4040), uint256(3260)];
+        uint256[3] memory sigSizes = [uint256(4296), uint256(4040), uint256(4188)];
         string[3] memory names = [
             "W+C_P+FP (h=18,d=2)",
             "W+C_F+C  (h=18,d=2)",
@@ -127,13 +127,13 @@ contract GasBenchmark is Test {
         ];
 
         // Separate hash bytes (nonzero-dominated) from count bytes (small integers)
-        // C1: 16(R) + 13*16(secrets) + 121*16(auth) + 2*(32*16 + 9*16) hash; 2*4 count
+        // C1: 16(R) + 13*16(secrets) + 172*16(auth) + 2*(32*16 + 9*16) hash; 2*4 count
         // C2: 16(R) + 13*16(secrets) + 12*13*16(auth) + 2*(32*16 + 9*16) hash; 2*4 count
-        // C3: 16(R) + 11*16(secrets) + 68*16(auth) + 3*(32*16 + 9*16) hash; 3*4 count
+        // C3: 16(R) + 11*16(secrets) + 126*16(auth) + 3*(32*16 + 9*16) hash; 3*4 count
         uint256[3] memory hashBytes = [
-            uint256(16 + 13*16 + 121*16 + 2*(32*16 + 9*16)),
+            uint256(16 + 13*16 + 172*16 + 2*(32*16 + 9*16)),
             uint256(16 + 13*16 + 12*13*16 + 2*(32*16 + 9*16)),
-            uint256(16 + 11*16 + 68*16 + 3*(32*16 + 9*16))
+            uint256(16 + 11*16 + 126*16 + 3*(32*16 + 9*16))
         ];
         uint256[3] memory countBytes = [uint256(2*4), uint256(2*4), uint256(3*4)];
 
@@ -194,16 +194,16 @@ contract GasBenchmark is Test {
         console.log("  EIP-7623 Calldata Floor: 60/15 gas per byte");
         console.log("====================================================");
         console.log("");
-        console.log("Scheme              h   d   a   k   w   SigSize  Target Gas");
-        console.log("------------------------------------------------------------");
-        console.log("W+C_P+FP (C1)      18   2  13  13  16   3480B    231.2K");
-        console.log("W+C_F+C  (C2)      18   2  13  13  16   4040B    265.6K");
-        console.log("W+C_P+FP (C3)      27   3  11  11  16   3260B    226.8K");
+        console.log("Scheme              h   d   a   k   w   SigSize");
+        console.log("------------------------------------------------");
+        console.log("W+C_P+FP (C1)      18   2  13  13  16   4296B");
+        console.log("W+C_F+C  (C2)      18   2  13  13  16   4040B");
+        console.log("W+C_P+FP (C3)      27   3  11  11  16   4188B");
         console.log("");
-        console.log("Gas Breakdown (EIP-7623 floor pricing):");
-        console.log("  C1: 203.7K calldata(floor) + 27.5K compute = 231.2K total");
-        console.log("  C2: 236.6K calldata(floor) + 29.0K compute = 265.6K total");
-        console.log("  C3: 190.7K calldata(floor) + 36.1K compute = 226.8K total");
+        console.log("Calldata floor only (97%% NZ byte assumption):");
+        console.log("  C1: ~251.6K");
+        console.log("  C2: ~236.6K");
+        console.log("  C3: ~245.0K");
         console.log("");
         console.log("EIP-7623 Impact:");
         console.log("  Calldata floor (60/15) is ~3.75x standard pricing (16/4)");
@@ -217,8 +217,8 @@ contract GasBenchmark is Test {
         console.log("  C3 (h=27) degrades slower due to more FORS instances");
         console.log("");
         console.log("WOTS+C params: l=32, len1=32, z=0, S_w,n=240, w=16");
-        console.log("PORS+FP C1: mMax=121 auth nodes");
-        console.log("PORS+FP C3: mMax=68 auth nodes");
+        console.log("PORS+FP C1: treeHeight=17, mMax=172 auth nodes");
+        console.log("PORS+FP C3: treeHeight=15, mMax=126 auth nodes");
     }
 
     // ── Helpers ──

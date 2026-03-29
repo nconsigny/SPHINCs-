@@ -91,8 +91,8 @@ contract SecurityDecay is Test {
         console.log("    - Can safely extend to millions of signatures at 112+ bits");
         console.log("");
         console.log("  Gas cost for 'statelessness' (EIP-7623 floor):");
-        console.log("    C1 (P+FP): 249.7K gas, 3704B sig (222.2K cd + 27.5K exec)");
-        console.log("    C3 (P+FP): 251.9K gas, 3596B sig (215.8K cd + 36.1K exec)");
+        console.log("    C1 (P+FP): larger sig after treeHeight fix (4296B)");
+        console.log("    C3 (P+FP): larger sig after treeHeight fix (4188B)");
         console.log("    -> C3 is BETTER on both sig size AND stateless properties");
         console.log("    -> Only costs 2.2K more gas (0.9% increase)");
         console.log("    -> EIP-7623 floor: calldata dominates, smaller sig = less gas");

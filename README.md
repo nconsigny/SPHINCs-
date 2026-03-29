@@ -26,7 +26,7 @@ EOA (ECDSA key)
             ├── pkSeed + pkRoot → stored in SphincsWc*Asm verifier (on-chain)
             └── sk_seed         → never stored, rederived per signing session
 
-UserOp signature = abi.encode(ecdsaSig[65], sphincsSig[3596–4264])
+UserOp signature = abi.encode(ecdsaSig[65], sphincsSig[3740–4296])
 
 EntryPoint.handleOps()
     └── SphincsAccount._validateSignature()
@@ -40,8 +40,9 @@ Both signatures must be valid. Compromising ECDSA alone is not enough — a quan
 
 | Variant | Scheme | Sig size | ASM verify gas | Security |
 |---|---|---|---|---|
-| C2 | FORS+C h=18 d=2 | 4264 bytes | ~190K | 128-bit post-quantum |
-| C3 | PORS+FP h=27 d=3 | 3596 bytes | ~260K | 128-bit post-quantum |
+| C2 | FORS+C h=18 d=2 | 4040 bytes | ~190K | 128-bit post-quantum |
+| C3 | PORS+FP h=27 d=3 | 4188 bytes | ~260K | 128-bit post-quantum |
+| C4 | FORS+C h=30 d=3 | 3740 bytes | ~204K | ~122-bit @ q=2^20 |
 
 Full ERC-4337 transaction cost (including calldata, EntryPoint overhead, ECDSA, execute): ~412K (C2) / ~444K (C3).
 
@@ -117,7 +118,7 @@ forge script script/DeploySepolia.s.sol --rpc-url sepolia --broadcast
 python3 script/send_userop.py create \
   --factory <factory_address> \
   --ecdsa-key $PRIVATE_KEY \
-  --variant c2   # or c3
+  --variant c2   # or c3 / c4
 ```
 
 Then run the printed `cast send` command to deploy the account on-chain, and fund it with Sepolia ETH.
@@ -130,7 +131,7 @@ python3 script/send_userop.py send \
   --ecdsa-key $PRIVATE_KEY \
   --to <recipient> \
   --value 0.001 \
-  --variant c2   # or c3
+  --variant c2   # or c3 / c4
 ```
 
 ## Tests

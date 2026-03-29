@@ -5,7 +5,7 @@ import {TweakableHash} from "./TweakableHash.sol";
 import {WotsPlusC} from "./WotsPlusC.sol";
 
 /// @title SphincsWcPfp18 - Tweaked SPHINCS+ Verifier: W+C + P+FP (h=18, d=2, a=13, k=13)
-/// @notice Contract 1: WOTS+C with PORS+FP. Sig: 3480 bytes.
+/// @notice Contract 1: WOTS+C with PORS+FP. Sig: 4296 bytes.
 contract SphincsWcPfp18 {
     uint256 constant N = 16;
     uint256 constant H = 18;
@@ -18,8 +18,10 @@ contract SphincsWcPfp18 {
     uint256 constant LEN1 = 32;        // ceil(n_bits/log2(w)) = 32
     uint256 constant TARGET_SUM = 240; // (w-1)*len1/2 = 15*32/2 = 240
     uint256 constant Z = 0;
-    uint256 constant M_MAX = 121;
-    uint256 constant TREE_HEIGHT = A;
+    // PORS+FP single-tree height: ceil(log2(k * 2^a)) = ceil(log2(13 * 8192)) = 17
+    uint256 constant TREE_HEIGHT = 17;
+    // Maximum Octopus auth nodes for k=13 in a height-17 tree.
+    uint256 constant M_MAX = 172;
 
     uint256 constant PORS_START = N;
     uint256 constant AUTH_START = N + K * N;
@@ -194,6 +196,7 @@ contract SphincsWcPfp18 {
                     newCount++;
                     j += 2;
                 } else {
+                    require(authIdx < M_MAX, "PORS auth overflow");
                     bytes32 siblingHash = _readN(sig, AUTH_START + authIdx * N);
                     authIdx++;
                     bytes32 left = (idx & 1 == 0) ? currentHashes[j] : siblingHash;

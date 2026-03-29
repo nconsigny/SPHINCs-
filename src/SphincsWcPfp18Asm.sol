@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 /// @title SphincsWcPfp18Asm - Assembly-optimized SPHINCS+ Verifier: W+C + P+FP
-/// @notice Contract 1 Asm: h=18, d=2, a=13, k=13, w=16, l=32, S_{w,n}=240, z=0, mMax=121
-///         Sig: 3480 bytes. Same external interface as SphincsWcPfp18.
+/// @notice Contract 1 Asm: h=18, d=2, a=13, k=13, treeHeight=17, w=16, l=32, S_{w,n}=240, z=0, mMax=172
+///         Sig: 4296 bytes. Same external interface as SphincsWcPfp18.
 /// @dev Fixed memory layout:
 ///        0x00:  seed (warm forever)
 ///        0x20:  ADRS scratch
@@ -26,8 +26,8 @@ contract SphincsWcPfp18Asm {
             let N_MASK := 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000000000000000000000000000
             let SIG_BASE := 0x64
 
-            // Verify sig length = 3480
-            if iszero(eq(calldataload(0x44), 3480)) {
+            // Verify sig length = 4296
+            if iszero(eq(calldataload(0x44), 4296)) {
                 mstore(0x00, 0x08c379a000000000000000000000000000000000000000000000000000000000)
                 mstore(0x04, 0x20)
                 mstore(0x24, 18)
@@ -57,15 +57,15 @@ contract SphincsWcPfp18Asm {
             // ============================================================
             // STEP 2: PORS+FP verification
             // ============================================================
-            // K=13 leaves, A=TREE_HEIGHT=13, mMax=121
-            // PORS_START=16, AUTH_START=16+13*16=224, HT_START=224+121*16=2160
+            // K=13 leaves, TREE_HEIGHT=17, mMax=172
+            // PORS_START=16, AUTH_START=16+13*16=224, HT_START=224+172*16=2976
 
             // 2a: Extract 13 distinct indices from digest.
             // Indices stored at 0x280 (= 0x80 + 13*32), leaf hashes at 0x80.
             let INDICES_BASE := 0x280
             {
-                let totalLeaves := 8192 // 2^13
-                let idxMask := 0x1FFF   // 2^13 - 1
+                let totalLeaves := 131072 // 2^17
+                let idxMask := 0x1FFFF    // 2^17 - 1
                 let count := 0
                 let nonce := 0
 
@@ -76,7 +76,7 @@ contract SphincsWcPfp18Asm {
                     let extended := keccak256(0x20, 0x40)
 
                     let bits := extended
-                    for { let b := 0 } and(lt(add(b, 13), 257), lt(count, 13)) { b := add(b, 13) } {
+                    for { let b := 0 } and(lt(add(b, 17), 257), lt(count, 13)) { b := add(b, 17) } {
                         let candidate := and(shr(b, bits), idxMask)
                         if lt(candidate, totalLeaves) {
                             // Check duplicates
@@ -131,14 +131,10 @@ contract SphincsWcPfp18Asm {
                 mstore(add(OCTOPUS, add(mul(i, 0x40), 0x20)), mload(add(0x80, mul(i, 0x20))))
             }
 
-            // Restore seed at 0x00 (was not overwritten by keccak, but index extraction
-            // used mstore(0x20,..) which only touched ADRS slot)
-            mstore(0x00, seed)
-
             let currentCount := 13
             let authIdx := 0
 
-            for { let level := 0 } lt(level, 13) { level := add(level, 1) } {
+            for { let level := 0 } lt(level, 17) { level := add(level, 1) } {
                 let newCount := 0
                 let j := 0
 
@@ -174,6 +170,7 @@ contract SphincsWcPfp18Asm {
                         j := add(j, 2)
                     }
                     default {
+                        if iszero(lt(authIdx, 172)) { revert(0, 0) }
                         // Read sibling from auth set: AUTH_START + authIdx*16 = 224 + authIdx*16
                         let sibHash := and(calldataload(add(SIG_BASE, add(224, mul(authIdx, 16)))), N_MASK)
                         authIdx := add(authIdx, 1)
@@ -203,7 +200,7 @@ contract SphincsWcPfp18Asm {
             // ============================================================
             let currentNode := porsPk
             let idxTree := htIdx
-            let sigOff := 2160 // HT_START = 224 + 121*16
+            let sigOff := 2976 // HT_START = 224 + 172*16
 
             // Spill to memory to free stack
             mstore(0x540, idxTree)
@@ -224,7 +221,6 @@ contract SphincsWcPfp18Asm {
                 let count := shr(224, calldataload(add(SIG_BASE, countOff)))
 
                 // WOTS digest
-                mstore(0x00, seed)
                 mstore(0x20, wotsAdrs)
                 mstore(0x40, currentNode)
                 mstore(0x60, count)

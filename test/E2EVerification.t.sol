@@ -5,6 +5,8 @@ import {Test, console} from "forge-std/Test.sol";
 
 import {SphincsWcFc18} from "../src/SphincsWcFc18.sol";
 import {SphincsWcFc18Asm} from "../src/SphincsWcFc18Asm.sol";
+import {SphincsWcFc30} from "../src/SphincsWcFc30.sol";
+import {SphincsWcFc30Asm} from "../src/SphincsWcFc30Asm.sol";
 import {SphincsWcPfp18} from "../src/SphincsWcPfp18.sol";
 import {SphincsWcPfp18Asm} from "../src/SphincsWcPfp18Asm.sol";
 import {SphincsWcPfp27} from "../src/SphincsWcPfp27.sol";
@@ -70,7 +72,7 @@ contract E2EVerification is Test {
     }
 
     // ================================================================
-    //  Contract 1: W+C + P+FP (h=18, d=2) — 3704 bytes
+    //  Contract 1: W+C + P+FP (h=18, d=2) — 4296 bytes
     // ================================================================
 
     function test_C1_E2E() public {
@@ -101,7 +103,38 @@ contract E2EVerification is Test {
     }
 
     // ================================================================
-    //  Contract 3: W+C + P+FP (h=27, d=3) — 3596 bytes
+    //  Contract 4: W+C + FORS+C (h=30, d=3) — 3740 bytes
+    // ================================================================
+
+    function test_C4_E2E() public {
+        bytes32 message = keccak256("e2e_c4");
+
+        console.log("================================================================");
+        console.log("  E2E VERIFICATION: Contract 4 (W+C + FORS+C h=30)");
+        console.log("================================================================");
+
+        (bytes32 seed, bytes32 root, bytes memory sig) = _callSigner("c4", message);
+        console.log("  Sig length: %d bytes", sig.length);
+
+        SphincsWcFc30 sol = new SphincsWcFc30(seed, root);
+        uint256 g1 = gasleft();
+        bool solValid = sol.verify(message, sig);
+        uint256 solGas = g1 - gasleft();
+        assertTrue(solValid, "C4 Solidity verify FAILED");
+        console.log("  Solidity: VERIFIED (gas: %d)", solGas);
+
+        SphincsWcFc30Asm asm_ = new SphincsWcFc30Asm(seed, root);
+        uint256 g2 = gasleft();
+        bool asmValid = asm_.verify(message, sig);
+        uint256 asmGas = g2 - gasleft();
+        assertTrue(asmValid, "C4 Assembly verify FAILED");
+        console.log("  Assembly: VERIFIED (gas: %d)", asmGas);
+        console.log("  Speedup: %dx", solGas / asmGas);
+        console.log("");
+    }
+
+    // ================================================================
+    //  Contract 3: W+C + P+FP (h=27, d=3) — 4188 bytes
     // ================================================================
 
     function test_C3_E2E() public {

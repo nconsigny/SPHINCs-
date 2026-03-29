@@ -73,7 +73,7 @@ pragma solidity ^0.8.28;
 /// ### Why Contract 3 Is the Best "Stateless-like" Choice
 ///
 /// Contract 3 (h=27, d=3) provides:
-///   1. Smallest signatures (3596 bytes)
+///   1. Largest FORS/PORS instance space for slowest reuse decay
 ///   2. Most FORS instances (2^27) → slowest security decay
 ///   3. ~256M signatures before dropping to 112-bit security
 ///   4. True "stateless-like" behavior at practical signature counts

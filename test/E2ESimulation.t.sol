@@ -381,20 +381,20 @@ contract E2ESimulation is Test {
         // Hash output bytes: ~97% nonzero (uniformly distributed)
         // Count field bytes: ~75% nonzero (small integers)
 
-        uint256[3] memory sigSizes = [uint256(3480), uint256(4040), uint256(3260)];
+        uint256[3] memory sigSizes = [uint256(4296), uint256(4040), uint256(4188)];
         uint256[3] memory hashBytes;
         uint256[3] memory countBytes;
 
-        // C1: 16(R) + 13*16(secrets) + 121*16(auth) + 2*(32*16 + 4 + 9*16)
-        hashBytes[0] = 16 + 13 * 16 + 121 * 16 + 2 * (32 * 16 + 9 * 16);
+        // C1: 16(R) + 13*16(secrets) + 172*16(auth) + 2*(32*16 + 4 + 9*16)
+        hashBytes[0] = 16 + 13 * 16 + 172 * 16 + 2 * (32 * 16 + 9 * 16);
         countBytes[0] = 2 * 4;
 
         // C2: 16(R) + 13*16(secrets) + 12*13*16(auth) + 2*(32*16 + 4 + 9*16)
         hashBytes[1] = 16 + 13 * 16 + 12 * 13 * 16 + 2 * (32 * 16 + 9 * 16);
         countBytes[1] = 2 * 4;
 
-        // C3: 16(R) + 11*16(secrets) + 68*16(auth) + 3*(32*16 + 4 + 9*16)
-        hashBytes[2] = 16 + 11 * 16 + 68 * 16 + 3 * (32 * 16 + 9 * 16);
+        // C3: 16(R) + 11*16(secrets) + 126*16(auth) + 3*(32*16 + 4 + 9*16)
+        hashBytes[2] = 16 + 11 * 16 + 126 * 16 + 3 * (32 * 16 + 9 * 16);
         countBytes[2] = 3 * 4;
 
         string[3] memory names = [
@@ -463,7 +463,7 @@ contract E2ESimulation is Test {
         bytes32 root = keccak256("dummy_root");
 
         if (contractId == 1) {
-            uint256 sigSize = 16 + 13 * 16 + 121 * 16 + 2 * (32 * 16 + 4 + 9 * 16);
+            uint256 sigSize = 16 + 13 * 16 + 172 * 16 + 2 * (32 * 16 + 4 + 9 * 16);
             SphincsWcPfp18 v = new SphincsWcPfp18(SEED, root);
             bytes memory sig = _randomSig(sigSize);
 
@@ -518,7 +518,7 @@ contract E2ESimulation is Test {
             _estimateTotal(sigSize, used, "C2");
 
         } else {
-            uint256 sigSize = 16 + 11 * 16 + 68 * 16 + 3 * (32 * 16 + 4 + 9 * 16);
+            uint256 sigSize = 16 + 11 * 16 + 126 * 16 + 3 * (32 * 16 + 4 + 9 * 16);
             SphincsWcPfp27 v = new SphincsWcPfp27(SEED, root);
             bytes memory sig = _randomSig(sigSize);
 
@@ -671,7 +671,7 @@ contract E2ESimulation is Test {
 
         // Calldata: sig + overhead (4B selector + 32B msg + 64B ABI = 100B)
         // Hash bytes ~97% nonzero, count bytes ~75% nonzero
-        uint256[3] memory sigSizes = [uint256(3480), uint256(4040), uint256(3260)];
+        uint256[3] memory sigSizes = [uint256(4296), uint256(4040), uint256(4188)];
 
         // Compute both standard and floor calldata for each contract
         uint256[3] memory floorCd;
@@ -709,9 +709,9 @@ contract E2ESimulation is Test {
         console.log("");
 
         console.log("Contract 1: W+C + P+FP (h=18, d=2, a=13, k=13)");
-        console.log("  Signature:         3480 bytes");
+        console.log("  Signature:         4296 bytes");
         console.log("  EVM execution:   %d gas", c1_exec);
-        console.log("    PORS+FP:       %d gas (Octopus, mMax=121)", c1_pors);
+        console.log("    PORS+FP:       %d gas (Octopus, mMax=172)", c1_pors);
         console.log("    WOTS+C (x2):   %d gas", 2 * wotsPerLayer);
         console.log("  Calldata (std):    %d gas (16/4)", stdCd[0]);
         console.log("  Calldata (floor):  %d gas (60/15)", floorCd[0]);
@@ -733,9 +733,9 @@ contract E2ESimulation is Test {
         console.log("");
 
         console.log("Contract 3: W+C + P+FP (h=27, d=3, a=11, k=11)");
-        console.log("  Signature:         3260 bytes");
+        console.log("  Signature:         4188 bytes");
         console.log("  EVM execution:   %d gas", c3_exec);
-        console.log("    PORS+FP:       %d gas (Octopus, mMax=68)", c3_pors);
+        console.log("    PORS+FP:       %d gas (Octopus, mMax=126)", c3_pors);
         console.log("    WOTS+C (x3):   %d gas", 3 * wotsPerLayer);
         console.log("  Calldata (std):    %d gas (16/4)", stdCd[2]);
         console.log("  Calldata (floor):  %d gas (60/15)", floorCd[2]);
@@ -748,11 +748,11 @@ contract E2ESimulation is Test {
         console.log("  -------------------------------------------------------");
         console.log("  Contract  Sig(B)  Exec     Floor CD   Total    Paper");
         console.log("  -------------------------------------------------------");
-        console.log("  C1 P+FP   3480   %dK  %dK   %dK   249.7K",
+        console.log("  C1 P+FP   4296   %dK  %dK   %dK   249.7K",
             c1_exec / 1000, floorCd[0] / 1000, totalTx[0] / 1000);
         console.log("  C2 F+C    4040   %dK  %dK   %dK   284.9K",
             c2_exec / 1000, floorCd[1] / 1000, totalTx[1] / 1000);
-        console.log("  C3 P+FP   3260   %dK  %dK   %dK   251.9K",
+        console.log("  C3 P+FP   4188   %dK  %dK   %dK   251.9K",
             c3_exec / 1000, floorCd[2] / 1000, totalTx[2] / 1000);
         console.log("  -------------------------------------------------------");
         console.log("");
