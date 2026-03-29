@@ -1,16 +1,14 @@
-/// @title wots_chain_verify — Linked Yul library for WOTS+C chain verification
+/// @title WotsChainVerify — Linked Yul library for WOTS+C chain verification
 /// @notice Linked into the Verity-compiled WotsOtsVerifier contract.
 ///         Performs digest computation, digit extraction + sum check,
 ///         32 chain completions, and PK compression.
-/// @dev Compile with: lake exe verity-compiler --link verity/wots_chain_verify.yul
+/// @dev Parameters: w=16, n=128 bits, l=32, targetSum=240, z=0, sig=516 bytes
 ///
-/// Parameters: w=16, n=128 bits, l=32, targetSum=240, z=0, sig=516 bytes
-///
-/// Memory layout (matches WotsOtsAccount.sol assembly):
-///   0x00: seed          (written by caller, warm)
+/// Memory layout:
+///   0x00: seed          (written once, warm for all keccak calls)
 ///   0x20: ADRS          (modified in-place per hash)
 ///   0x40: input/value   (chain value)
-///   0x60: count/input2  (digest input)
+///   0x60: count/input2  (digest second input)
 ///   0x80..0x47F: 32 endpoint buffer (32 x 32 bytes)
 
 /// @param sigOffset  Calldata offset where sig bytes start
@@ -32,6 +30,7 @@ function wotsChainVerify(sigOffset, sigLen, message, seed) -> computedPk {
     let count := shr(224, calldataload(add(sigOffset, 512)))
 
     // Compute digest = keccak256(seed || 0 || message || count)
+    // ADRS = 0 for standalone WOTS (no layer/tree/keyPair)
     mstore(0x20, 0)
     mstore(0x40, message)
     mstore(0x60, count)
@@ -44,18 +43,18 @@ function wotsChainVerify(sigOffset, sigLen, message, seed) -> computedPk {
     }
     if iszero(eq(digitSum, 240)) { leave }
 
-    // Complete 32 chains
+    // Complete 32 chains, store endpoints at 0x80+i*32
     for { let i := 0 } lt(i, 32) { i := add(i, 1) } {
         let digit := and(shr(mul(i, 4), d), 0xF)
         let steps := sub(15, digit)
 
-        // Read sigma[i] from calldata
+        // Read sigma[i] from calldata: 16 bytes at sigOffset + i*16
         let val := and(calldataload(add(sigOffset, mul(i, 16))), N_MASK)
 
         // Chain ADRS base: chainIndex << 64
         let chainAdrs := shl(64, i)
 
-        // Chain hash inner loop
+        // Chain hash inner loop: keccak256(seed || adrs || val) & N_MASK
         for { let step := 0 } lt(step, steps) { step := add(step, 1) } {
             let pos := add(digit, step)
             mstore(0x20, or(chainAdrs, shl(32, pos)))
@@ -68,9 +67,11 @@ function wotsChainVerify(sigOffset, sigLen, message, seed) -> computedPk {
     }
 
     // PK compression: keccak256(seed || pkAdrs || 32 endpoints)
+    // pkAdrs = WOTS_PK type = (1 << 128)
     mstore(0x20, shl(128, 1))
     for { let i := 0 } lt(i, 32) { i := add(i, 1) } {
         mstore(add(0x40, mul(i, 0x20)), mload(add(0x80, mul(i, 0x20))))
     }
+    // keccak256(0x00, 32+32+32*32) = keccak256(0x00, 0x440) = 1088 bytes
     computedPk := and(keccak256(0x00, 0x440), N_MASK)
 }
