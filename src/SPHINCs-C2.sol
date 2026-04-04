@@ -4,15 +4,15 @@ pragma solidity ^0.8.28;
 import {TweakableHash} from "./TweakableHash.sol";
 import {WotsPlusC} from "./WotsPlusC.sol";
 
-/// @title SphincsWcFc30 - Tweaked SPHINCS+ Verifier: W+C + FORS+C (h=30, d=3, a=14, k=8)
-/// @notice Contract 4: WOTS+C with FORS+C. Sig: 3740 bytes.
-contract SphincsWcFc30 {
+/// @title SphincsC2 - Tweaked SPHINCS+ Verifier: W+C + FORS+C (h=18, d=2, a=13, k=13)
+/// @notice Contract 2: WOTS+C with FORS+C. Sig: 4040 bytes.
+contract SphincsC2 {
     uint256 constant N = 16;
-    uint256 constant H = 30;
-    uint256 constant D = 3;
-    uint256 constant SUBTREE_H = 10;
-    uint256 constant A = 14;
-    uint256 constant K = 8;
+    uint256 constant H = 18;
+    uint256 constant D = 2;
+    uint256 constant SUBTREE_H = 9;
+    uint256 constant A = 13;
+    uint256 constant K = 13;
     uint256 constant W = 16;
     uint256 constant L = 32;           // ceil(128/4) = 32 message chains
     uint256 constant LEN1 = 32;        // ceil(n_bits/log2(w)) = 32
@@ -49,7 +49,7 @@ contract SphincsWcFc30 {
 
         uint256 htIdx;
         assembly ("memory-safe") {
-            htIdx := and(shr(112, digest), sub(shl(30, 1), 1))
+            htIdx := and(shr(169, digest), sub(shl(18, 1), 1))
         }
 
         bytes32 forsPk = _verifyFors(seed, digest, sig);

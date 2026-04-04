@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-/// @title SphincsWcPfp27Asm - Assembly-optimized SPHINCS+ Verifier: W+C + P+FP
+/// @title SphincsC3Asm - Assembly-optimized SPHINCS+ Verifier: W+C + P+FP
 /// @notice Contract 3 Asm: h=27, d=3, a=11, k=11, treeHeight=15, w=16, l=32, S_{w,n}=240, z=0, mMax=126
-///         Sig: 4188 bytes. Same external interface as SphincsWcPfp27.
-contract SphincsWcPfp27Asm {
+///         Sig: 4188 bytes. Same external interface as SphincsC3.
+contract SphincsC3Asm {
     bytes32 public pkSeed;  // slot 0
     bytes32 public pkRoot;  // slot 1
 

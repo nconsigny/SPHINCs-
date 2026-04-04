@@ -4,24 +4,24 @@ pragma solidity ^0.8.28;
 import {TweakableHash} from "./TweakableHash.sol";
 import {WotsPlusC} from "./WotsPlusC.sol";
 
-/// @title SphincsWcPfp27 - Tweaked SPHINCS+ Verifier: W+C + P+FP (h=27, d=3, a=11, k=11)
-/// @notice Contract 3: WOTS+C with PORS+FP, deeper hypertree. Sig: 4188 bytes.
-contract SphincsWcPfp27 {
+/// @title SphincsC1 - Tweaked SPHINCS+ Verifier: W+C + P+FP (h=18, d=2, a=13, k=13)
+/// @notice Contract 1: WOTS+C with PORS+FP. Sig: 4296 bytes.
+contract SphincsC1 {
     uint256 constant N = 16;
-    uint256 constant H = 27;
-    uint256 constant D = 3;
+    uint256 constant H = 18;
+    uint256 constant D = 2;
     uint256 constant SUBTREE_H = 9;
-    uint256 constant A = 11;
-    uint256 constant K = 11;
+    uint256 constant A = 13;
+    uint256 constant K = 13;
     uint256 constant W = 16;
     uint256 constant L = 32;           // ceil(128/4) = 32 message chains
     uint256 constant LEN1 = 32;        // ceil(n_bits/log2(w)) = 32
     uint256 constant TARGET_SUM = 240; // (w-1)*len1/2 = 15*32/2 = 240
     uint256 constant Z = 0;
-    // PORS+FP single-tree height: ceil(log2(k * 2^a)) = ceil(log2(11 * 2048)) = 15
-    uint256 constant TREE_HEIGHT = 15;
-    // Maximum Octopus auth nodes for k=11 in a height-15 tree.
-    uint256 constant M_MAX = 126;
+    // PORS+FP single-tree height: ceil(log2(k * 2^a)) = ceil(log2(13 * 8192)) = 17
+    uint256 constant TREE_HEIGHT = 17;
+    // Maximum Octopus auth nodes for k=13 in a height-17 tree.
+    uint256 constant M_MAX = 172;
 
     uint256 constant PORS_START = N;
     uint256 constant AUTH_START = N + K * N;
@@ -52,15 +52,14 @@ contract SphincsWcPfp27 {
         bytes32 digest = TweakableHash.hMsg(seed, root, R, message);
 
         uint256 htIdx;
-        {
-            uint256 porsIdxBits = K * A;
-            assembly ("memory-safe") {
-                htIdx := and(shr(porsIdxBits, digest), sub(shl(27, 1), 1))
-            }
+        assembly ("memory-safe") {
+            htIdx := and(shr(169, digest), sub(shl(18, 1), 1))
         }
 
+        // PORS+FP: parse secrets, compute leaves, extract indices, Octopus reconstruct
         bytes32 porsPk = _verifyPors(seed, digest, sig);
 
+        // Hypertree: d layers of WOTS+C + Merkle
         bytes32 currentNode = porsPk;
         uint256 idxTree = htIdx;
         uint256 offset = HT_START;
@@ -90,6 +89,7 @@ contract SphincsWcPfp27 {
     ) internal pure returns (bytes32 porsPk) {
         uint256[] memory leafIndices = _extractIndices(digest);
 
+        // Parse secrets and compute leaf hashes at digest-derived indices
         bytes32[] memory leafHashes = new bytes32[](K);
         for (uint256 i = 0; i < K; i++) {
             bytes32 secretVal = _readN(sig, PORS_START + i * N);
@@ -99,8 +99,10 @@ contract SphincsWcPfp27 {
             leafHashes[i] = TweakableHash.th(seed, leafAdrs, secretVal);
         }
 
+        // Sort indices and corresponding leaf hashes together
         bytes32[] memory sortedHashes = _sortIndicesAndHashes(leafIndices, leafHashes);
 
+        // Octopus reconstruction
         porsPk = _octopusReconstruct(seed, leafIndices, sortedHashes, sig);
     }
 
@@ -142,6 +144,7 @@ contract SphincsWcPfp27 {
         uint256[] memory indices,
         bytes32[] memory leafHashes
     ) internal pure returns (bytes32[] memory sorted) {
+        // Sort indices and hashes together
         for (uint256 i = 1; i < K; i++) {
             uint256 key = indices[i];
             bytes32 keyHash = leafHashes[i];

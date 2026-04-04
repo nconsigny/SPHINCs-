@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-/// @title SphincsWcFc24Asm - Assembly-optimized SPHINCS+ Verifier: W+C + FORS+C
+/// @title SphincsC6Asm - Assembly-optimized SPHINCS+ Verifier: W+C + FORS+C
 /// @notice Contract 6 Asm: h=24, d=2, a=16, k=8, w=16, l=32, S_{w,n}=240, z=0
-///         Sig: 3352 bytes. Same external interface as SphincsWcFc24.
+///         Sig: 3352 bytes. Same external interface as SphincsC6.
 /// @dev Fixed memory layout:
 ///        0x00: seed (warm forever)
 ///        0x20: ADRS scratch
 ///        0x40: input1 / left child
 ///        0x60: input2 / right child
 ///        0x80: WOTS endpoint buffer (32×32) / FORS roots buffer (8×32)
-contract SphincsWcFc24Asm {
+contract SphincsC6Asm {
     bytes32 public pkSeed;  // slot 0
     bytes32 public pkRoot;  // slot 1
 

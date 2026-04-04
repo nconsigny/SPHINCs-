@@ -4,9 +4,9 @@ pragma solidity ^0.8.28;
 import {TweakableHash} from "./TweakableHash.sol";
 import {WotsPlusC} from "./WotsPlusC.sol";
 
-/// @title SphincsWcPfp20 - Tweaked SPHINCS+ Verifier: W+C + P+FP (h=20, d=2, a=12, k=11, w=32)
+/// @title SphincsC5 - Tweaked SPHINCS+ Verifier: W+C + P+FP (h=20, d=2, a=12, k=11, w=32)
 /// @notice Contract 5: WOTS+C with PORS+FP. Sig: 2888 bytes.
-contract SphincsWcPfp20 {
+contract SphincsC5 {
     uint256 constant N = 16;
     uint256 constant H = 20;
     uint256 constant D = 2;

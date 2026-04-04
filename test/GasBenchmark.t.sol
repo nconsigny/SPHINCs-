@@ -6,9 +6,9 @@ import {TweakableHash} from "../src/TweakableHash.sol";
 import {WotsPlusC} from "../src/WotsPlusC.sol";
 import {ForsPlusC} from "../src/ForsPlusC.sol";
 import {PorsFP} from "../src/PorsFP.sol";
-import {SphincsWcPfp18} from "../src/SphincsWcPfp18.sol";
-import {SphincsWcFc18} from "../src/SphincsWcFc18.sol";
-import {SphincsWcPfp27} from "../src/SphincsWcPfp27.sol";
+import {SphincsC1} from "../src/SPHINCs-C1.sol";
+import {SphincsC2} from "../src/SPHINCs-C2.sol";
+import {SphincsC3} from "../src/SPHINCs-C3.sol";
 
 /// @title GasBenchmark - Gas cost analysis for tweaked SPHINCS+ variants
 /// @notice Measures per-component and full-verification gas costs.

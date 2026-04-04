@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-/// @title SphincsWcPfp18Asm - Assembly-optimized SPHINCS+ Verifier: W+C + P+FP
+/// @title SphincsC1Asm - Assembly-optimized SPHINCS+ Verifier: W+C + P+FP
 /// @notice Contract 1 Asm: h=18, d=2, a=13, k=13, treeHeight=17, w=16, l=32, S_{w,n}=240, z=0, mMax=172
-///         Sig: 4296 bytes. Same external interface as SphincsWcPfp18.
+///         Sig: 4296 bytes. Same external interface as SphincsC1.
 /// @dev Fixed memory layout:
 ///        0x00:  seed (warm forever)
 ///        0x20:  ADRS scratch
@@ -12,7 +12,7 @@ pragma solidity ^0.8.28;
 ///        0x80:  WOTS endpoint buffer (32×32) / leaf hashes (13×32) / FORS roots
 ///        0x560: Octopus working set ((K+mMax)*64 max)
 ///        0x540: scratch for idxTree spill, 0x560: sigOff spill
-contract SphincsWcPfp18Asm {
+contract SphincsC1Asm {
     bytes32 public pkSeed;  // slot 0
     bytes32 public pkRoot;  // slot 1
 

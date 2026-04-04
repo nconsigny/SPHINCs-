@@ -3,9 +3,9 @@ pragma solidity ^0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
 import {TweakableHash} from "../src/TweakableHash.sol";
-import {SphincsWcPfp18} from "../src/SphincsWcPfp18.sol";
-import {SphincsWcFc18} from "../src/SphincsWcFc18.sol";
-import {SphincsWcPfp27} from "../src/SphincsWcPfp27.sol";
+import {SphincsC1} from "../src/SPHINCs-C1.sol";
+import {SphincsC2} from "../src/SPHINCs-C2.sol";
+import {SphincsC3} from "../src/SPHINCs-C3.sol";
 
 /// @title E2ESimulation - Full end-to-end verification gas simulation
 /// @notice Builds valid signatures bottom-up (keygen->sign->verify) and measures
@@ -336,7 +336,7 @@ contract E2ESimulation is Test {
         require(pos == sigSize, "sig packing mismatch");
 
         // Deploy contract with our computed root
-        SphincsWcFc18 verifier = new SphincsWcFc18(SEED, pkRoot);
+        SphincsC2 verifier = new SphincsC2(SEED, pkRoot);
 
         // Measure gas
         uint256 gasBefore = gasleft();
@@ -464,7 +464,7 @@ contract E2ESimulation is Test {
 
         if (contractId == 1) {
             uint256 sigSize = 16 + 13 * 16 + 172 * 16 + 2 * (32 * 16 + 4 + 9 * 16);
-            SphincsWcPfp18 v = new SphincsWcPfp18(SEED, root);
+            SphincsC1 v = new SphincsC1(SEED, root);
             bytes memory sig = _randomSig(sigSize);
 
             uint256 g = gasleft();
@@ -506,7 +506,7 @@ contract E2ESimulation is Test {
                 sig[i] = validR[i];
             }
 
-            SphincsWcFc18 v = new SphincsWcFc18(SEED, root);
+            SphincsC2 v = new SphincsC2(SEED, root);
 
             uint256 g = gasleft();
             try v.verify(message, sig) {} catch {}
@@ -519,7 +519,7 @@ contract E2ESimulation is Test {
 
         } else {
             uint256 sigSize = 16 + 11 * 16 + 126 * 16 + 3 * (32 * 16 + 4 + 9 * 16);
-            SphincsWcPfp27 v = new SphincsWcPfp27(SEED, root);
+            SphincsC3 v = new SphincsC3(SEED, root);
             bytes memory sig = _randomSig(sigSize);
 
             uint256 g = gasleft();

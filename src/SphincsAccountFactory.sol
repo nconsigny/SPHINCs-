@@ -4,11 +4,11 @@ pragma solidity ^0.8.28;
 import "@openzeppelin/contracts/utils/Create2.sol";
 import "account-abstraction/interfaces/IEntryPoint.sol";
 import "./SphincsAccount.sol";
-import "./SphincsWcFc18Asm.sol";
-import "./SphincsWcFc30Asm.sol";
-import "./SphincsWcPfp27Asm.sol";
-import "./SphincsWcPfp20Asm.sol";
-import "./SphincsWcFc24Asm.sol";
+import "./SPHINCs-C2Asm.sol";
+import "./SPHINCs-C4Asm.sol";
+import "./SPHINCs-C3Asm.sol";
+import "./SPHINCs-C5Asm.sol";
+import "./SPHINCs-C6Asm.sol";
 
 /// @title SphincsAccountFactory - Factory for hybrid ECDSA + SPHINCS+ 4337 accounts
 /// @notice Deploys a per-user SPHINCS+ verifier and a SphincsAccount in a single call.
@@ -41,15 +41,15 @@ contract SphincsAccountFactory {
         // Deploy verifier
         address verifierAddr;
         if (variant == 2) {
-            verifierAddr = address(new SphincsWcFc18Asm{salt: salt}(pkSeed, pkRoot));
+            verifierAddr = address(new SphincsC2Asm{salt: salt}(pkSeed, pkRoot));
         } else if (variant == 3) {
-            verifierAddr = address(new SphincsWcPfp27Asm{salt: salt}(pkSeed, pkRoot));
+            verifierAddr = address(new SphincsC3Asm{salt: salt}(pkSeed, pkRoot));
         } else if (variant == 4) {
-            verifierAddr = address(new SphincsWcFc30Asm{salt: salt}(pkSeed, pkRoot));
+            verifierAddr = address(new SphincsC4Asm{salt: salt}(pkSeed, pkRoot));
         } else if (variant == 5) {
-            verifierAddr = address(new SphincsWcPfp20Asm{salt: salt}(pkSeed, pkRoot));
+            verifierAddr = address(new SphincsC5Asm{salt: salt}(pkSeed, pkRoot));
         } else if (variant == 6) {
-            verifierAddr = address(new SphincsWcFc24Asm{salt: salt}(pkSeed, pkRoot));
+            verifierAddr = address(new SphincsC6Asm{salt: salt}(pkSeed, pkRoot));
         } else {
             revert InvalidVariant(variant);
         }
@@ -73,27 +73,27 @@ contract SphincsAccountFactory {
         bytes32 verifierHash;
         if (variant == 2) {
             verifierHash = keccak256(abi.encodePacked(
-                type(SphincsWcFc18Asm).creationCode,
+                type(SphincsC2Asm).creationCode,
                 abi.encode(pkSeed, pkRoot)
             ));
         } else if (variant == 3) {
             verifierHash = keccak256(abi.encodePacked(
-                type(SphincsWcPfp27Asm).creationCode,
+                type(SphincsC3Asm).creationCode,
                 abi.encode(pkSeed, pkRoot)
             ));
         } else if (variant == 4) {
             verifierHash = keccak256(abi.encodePacked(
-                type(SphincsWcFc30Asm).creationCode,
+                type(SphincsC4Asm).creationCode,
                 abi.encode(pkSeed, pkRoot)
             ));
         } else if (variant == 5) {
             verifierHash = keccak256(abi.encodePacked(
-                type(SphincsWcPfp20Asm).creationCode,
+                type(SphincsC5Asm).creationCode,
                 abi.encode(pkSeed, pkRoot)
             ));
         } else if (variant == 6) {
             verifierHash = keccak256(abi.encodePacked(
-                type(SphincsWcFc24Asm).creationCode,
+                type(SphincsC6Asm).creationCode,
                 abi.encode(pkSeed, pkRoot)
             ));
         } else {

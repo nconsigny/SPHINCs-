@@ -3,14 +3,14 @@ pragma solidity ^0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
 
-import {SphincsWcFc18} from "../src/SphincsWcFc18.sol";
-import {SphincsWcFc18Asm} from "../src/SphincsWcFc18Asm.sol";
-import {SphincsWcFc30} from "../src/SphincsWcFc30.sol";
-import {SphincsWcFc30Asm} from "../src/SphincsWcFc30Asm.sol";
-import {SphincsWcPfp18} from "../src/SphincsWcPfp18.sol";
-import {SphincsWcPfp18Asm} from "../src/SphincsWcPfp18Asm.sol";
-import {SphincsWcPfp27} from "../src/SphincsWcPfp27.sol";
-import {SphincsWcPfp27Asm} from "../src/SphincsWcPfp27Asm.sol";
+import {SphincsC2} from "../src/SPHINCs-C2.sol";
+import {SphincsC2Asm} from "../src/SPHINCs-C2Asm.sol";
+import {SphincsC4} from "../src/SPHINCs-C4.sol";
+import {SphincsC4Asm} from "../src/SPHINCs-C4Asm.sol";
+import {SphincsC1} from "../src/SPHINCs-C1.sol";
+import {SphincsC1Asm} from "../src/SPHINCs-C1Asm.sol";
+import {SphincsC3} from "../src/SPHINCs-C3.sol";
+import {SphincsC3Asm} from "../src/SPHINCs-C3Asm.sol";
 
 /// @title E2EVerification - End-to-end verification using Python reference signer
 /// @notice Calls the Python signer via FFI to get valid (seed, root, sig),
@@ -52,7 +52,7 @@ contract E2EVerification is Test {
         console.log("  Sig length: %d bytes", sig.length);
 
         // Solidity verification
-        SphincsWcFc18 sol = new SphincsWcFc18(seed, root);
+        SphincsC2 sol = new SphincsC2(seed, root);
         uint256 g1 = gasleft();
         bool solValid = sol.verify(message, sig);
         uint256 solGas = g1 - gasleft();
@@ -60,7 +60,7 @@ contract E2EVerification is Test {
         console.log("  Solidity: VERIFIED (gas: %d)", solGas);
 
         // Assembly verification
-        SphincsWcFc18Asm asm_ = new SphincsWcFc18Asm(seed, root);
+        SphincsC2Asm asm_ = new SphincsC2Asm(seed, root);
         uint256 g2 = gasleft();
         bool asmValid = asm_.verify(message, sig);
         uint256 asmGas = g2 - gasleft();
@@ -85,14 +85,14 @@ contract E2EVerification is Test {
         (bytes32 seed, bytes32 root, bytes memory sig) = _callSigner("c1", message);
         console.log("  Sig length: %d bytes", sig.length);
 
-        SphincsWcPfp18 sol = new SphincsWcPfp18(seed, root);
+        SphincsC1 sol = new SphincsC1(seed, root);
         uint256 g1 = gasleft();
         bool solValid = sol.verify(message, sig);
         uint256 solGas = g1 - gasleft();
         assertTrue(solValid, "C1 Solidity verify FAILED");
         console.log("  Solidity: VERIFIED (gas: %d)", solGas);
 
-        SphincsWcPfp18Asm asm_ = new SphincsWcPfp18Asm(seed, root);
+        SphincsC1Asm asm_ = new SphincsC1Asm(seed, root);
         uint256 g2 = gasleft();
         bool asmValid = asm_.verify(message, sig);
         uint256 asmGas = g2 - gasleft();
@@ -116,14 +116,14 @@ contract E2EVerification is Test {
         (bytes32 seed, bytes32 root, bytes memory sig) = _callSigner("c4", message);
         console.log("  Sig length: %d bytes", sig.length);
 
-        SphincsWcFc30 sol = new SphincsWcFc30(seed, root);
+        SphincsC4 sol = new SphincsC4(seed, root);
         uint256 g1 = gasleft();
         bool solValid = sol.verify(message, sig);
         uint256 solGas = g1 - gasleft();
         assertTrue(solValid, "C4 Solidity verify FAILED");
         console.log("  Solidity: VERIFIED (gas: %d)", solGas);
 
-        SphincsWcFc30Asm asm_ = new SphincsWcFc30Asm(seed, root);
+        SphincsC4Asm asm_ = new SphincsC4Asm(seed, root);
         uint256 g2 = gasleft();
         bool asmValid = asm_.verify(message, sig);
         uint256 asmGas = g2 - gasleft();
@@ -147,14 +147,14 @@ contract E2EVerification is Test {
         (bytes32 seed, bytes32 root, bytes memory sig) = _callSigner("c3", message);
         console.log("  Sig length: %d bytes", sig.length);
 
-        SphincsWcPfp27 sol = new SphincsWcPfp27(seed, root);
+        SphincsC3 sol = new SphincsC3(seed, root);
         uint256 g1 = gasleft();
         bool solValid = sol.verify(message, sig);
         uint256 solGas = g1 - gasleft();
         assertTrue(solValid, "C3 Solidity verify FAILED");
         console.log("  Solidity: VERIFIED (gas: %d)", solGas);
 
-        SphincsWcPfp27Asm asm_ = new SphincsWcPfp27Asm(seed, root);
+        SphincsC3Asm asm_ = new SphincsC3Asm(seed, root);
         uint256 g2 = gasleft();
         bool asmValid = asm_.verify(message, sig);
         uint256 asmGas = g2 - gasleft();

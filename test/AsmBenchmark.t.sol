@@ -2,14 +2,14 @@
 pragma solidity ^0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
-import {SphincsWcPfp18} from "../src/SphincsWcPfp18.sol";
-import {SphincsWcFc18} from "../src/SphincsWcFc18.sol";
-import {SphincsWcFc30} from "../src/SphincsWcFc30.sol";
-import {SphincsWcPfp27} from "../src/SphincsWcPfp27.sol";
-import {SphincsWcPfp18Asm} from "../src/SphincsWcPfp18Asm.sol";
-import {SphincsWcFc18Asm} from "../src/SphincsWcFc18Asm.sol";
-import {SphincsWcFc30Asm} from "../src/SphincsWcFc30Asm.sol";
-import {SphincsWcPfp27Asm} from "../src/SphincsWcPfp27Asm.sol";
+import {SphincsC1} from "../src/SPHINCs-C1.sol";
+import {SphincsC2} from "../src/SPHINCs-C2.sol";
+import {SphincsC4} from "../src/SPHINCs-C4.sol";
+import {SphincsC3} from "../src/SPHINCs-C3.sol";
+import {SphincsC1Asm} from "../src/SPHINCs-C1Asm.sol";
+import {SphincsC2Asm} from "../src/SPHINCs-C2Asm.sol";
+import {SphincsC4Asm} from "../src/SPHINCs-C4Asm.sol";
+import {SphincsC3Asm} from "../src/SPHINCs-C3Asm.sol";
 
 /// @title AsmBenchmark - Side-by-side gas comparison: Solidity vs Assembly verifiers
 /// @notice Run with: forge test --match-contract AsmBenchmark -vv
@@ -103,13 +103,13 @@ contract AsmBenchmark is Test {
         }
 
         // Solidity version
-        SphincsWcFc18 sol = new SphincsWcFc18(SEED, ROOT);
+        SphincsC2 sol = new SphincsC2(SEED, ROOT);
         uint256 g1 = gasleft();
         try sol.verify(message, sig) {} catch {}
         uint256 solGas = g1 - gasleft();
 
         // Assembly version
-        SphincsWcFc18Asm asm_ = new SphincsWcFc18Asm(SEED, ROOT);
+        SphincsC2Asm asm_ = new SphincsC2Asm(SEED, ROOT);
         uint256 g2 = gasleft();
         try asm_.verify(message, sig) {} catch {}
         uint256 asmGas = g2 - gasleft();
@@ -132,12 +132,12 @@ contract AsmBenchmark is Test {
         bytes32 message = keccak256("c1_bench_msg");
         bytes memory sig = _randomSig(sigSize);
 
-        SphincsWcPfp18 sol = new SphincsWcPfp18(SEED, ROOT);
+        SphincsC1 sol = new SphincsC1(SEED, ROOT);
         uint256 g1 = gasleft();
         try sol.verify(message, sig) {} catch {}
         uint256 solGas = g1 - gasleft();
 
-        SphincsWcPfp18Asm asm_ = new SphincsWcPfp18Asm(SEED, ROOT);
+        SphincsC1Asm asm_ = new SphincsC1Asm(SEED, ROOT);
         uint256 g2 = gasleft();
         try asm_.verify(message, sig) {} catch {}
         uint256 asmGas = g2 - gasleft();
@@ -158,12 +158,12 @@ contract AsmBenchmark is Test {
         bytes32 message = keccak256("c3_bench_msg");
         bytes memory sig = _randomSig(sigSize);
 
-        SphincsWcPfp27 sol = new SphincsWcPfp27(SEED, ROOT);
+        SphincsC3 sol = new SphincsC3(SEED, ROOT);
         uint256 g1 = gasleft();
         try sol.verify(message, sig) {} catch {}
         uint256 solGas = g1 - gasleft();
 
-        SphincsWcPfp27Asm asm_ = new SphincsWcPfp27Asm(SEED, ROOT);
+        SphincsC3Asm asm_ = new SphincsC3Asm(SEED, ROOT);
         uint256 g2 = gasleft();
         try asm_.verify(message, sig) {} catch {}
         uint256 asmGas = g2 - gasleft();
@@ -204,13 +204,13 @@ contract AsmBenchmark is Test {
         }
 
         // Solidity version
-        SphincsWcFc30 sol = new SphincsWcFc30(SEED, ROOT);
+        SphincsC4 sol = new SphincsC4(SEED, ROOT);
         uint256 g1 = gasleft();
         try sol.verify(message, sig) {} catch {}
         uint256 solGas = g1 - gasleft();
 
         // Assembly version
-        SphincsWcFc30Asm asm_ = new SphincsWcFc30Asm(SEED, ROOT);
+        SphincsC4Asm asm_ = new SphincsC4Asm(SEED, ROOT);
         uint256 g2 = gasleft();
         try asm_.verify(message, sig) {} catch {}
         uint256 asmGas = g2 - gasleft();
@@ -233,8 +233,8 @@ contract AsmBenchmark is Test {
 
         // C1
         bytes memory sig1 = _randomSig(4296);
-        SphincsWcPfp18 sol1 = new SphincsWcPfp18(SEED, ROOT);
-        SphincsWcPfp18Asm asm1 = new SphincsWcPfp18Asm(SEED, ROOT);
+        SphincsC1 sol1 = new SphincsC1(SEED, ROOT);
+        SphincsC1Asm asm1 = new SphincsC1Asm(SEED, ROOT);
         uint256 g; uint256 solG1; uint256 asmG1;
         g = gasleft(); try sol1.verify(msg1, sig1) {} catch {} solG1 = g - gasleft();
         g = gasleft(); try asm1.verify(msg1, sig1) {} catch {} asmG1 = g - gasleft();
@@ -252,16 +252,16 @@ contract AsmBenchmark is Test {
                 }
             }
         }
-        SphincsWcFc18 sol2 = new SphincsWcFc18(SEED, ROOT);
-        SphincsWcFc18Asm asm2 = new SphincsWcFc18Asm(SEED, ROOT);
+        SphincsC2 sol2 = new SphincsC2(SEED, ROOT);
+        SphincsC2Asm asm2 = new SphincsC2Asm(SEED, ROOT);
         uint256 solG2; uint256 asmG2;
         g = gasleft(); try sol2.verify(msg2, sig2) {} catch {} solG2 = g - gasleft();
         g = gasleft(); try asm2.verify(msg2, sig2) {} catch {} asmG2 = g - gasleft();
 
         // C3
         bytes memory sig3 = _randomSig(4188);
-        SphincsWcPfp27 sol3 = new SphincsWcPfp27(SEED, ROOT);
-        SphincsWcPfp27Asm asm3 = new SphincsWcPfp27Asm(SEED, ROOT);
+        SphincsC3 sol3 = new SphincsC3(SEED, ROOT);
+        SphincsC3Asm asm3 = new SphincsC3Asm(SEED, ROOT);
         uint256 solG3; uint256 asmG3;
         g = gasleft(); try sol3.verify(msg3, sig3) {} catch {} solG3 = g - gasleft();
         g = gasleft(); try asm3.verify(msg3, sig3) {} catch {} asmG3 = g - gasleft();
