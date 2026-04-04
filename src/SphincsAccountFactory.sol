@@ -7,11 +7,12 @@ import "./SphincsAccount.sol";
 import "./SphincsWcFc18Asm.sol";
 import "./SphincsWcFc30Asm.sol";
 import "./SphincsWcPfp27Asm.sol";
+import "./SphincsWcPfp20Asm.sol";
+import "./SphincsWcFc24Asm.sol";
 
 /// @title SphincsAccountFactory - Factory for hybrid ECDSA + SPHINCS+ 4337 accounts
 /// @notice Deploys a per-user SPHINCS+ verifier and a SphincsAccount in a single call.
-///         Supports variant 2 (FORS+C h=18), variant 3 (PORS+FP h=27),
-///         and variant 4 (FORS+C h=30).
+///         Supports variants 2-6.
 contract SphincsAccountFactory {
     IEntryPoint public immutable entryPoint;
 
@@ -27,7 +28,7 @@ contract SphincsAccountFactory {
     /// @param ecdsaOwner  The ECDSA signer address (EOA)
     /// @param pkSeed      SPHINCS+ public seed
     /// @param pkRoot      SPHINCS+ public root
-    /// @param variant     2 = FORS+C h=18, 3 = PORS+FP h=27, 4 = FORS+C h=30
+    /// @param variant     2 = FORS+C h=18, 3 = PORS+FP h=27, 4 = FORS+C h=30, 5 = PORS+FP h=20 w=32
     /// @return account    The deployed SphincsAccount
     function createAccount(
         address ecdsaOwner,
@@ -45,6 +46,10 @@ contract SphincsAccountFactory {
             verifierAddr = address(new SphincsWcPfp27Asm{salt: salt}(pkSeed, pkRoot));
         } else if (variant == 4) {
             verifierAddr = address(new SphincsWcFc30Asm{salt: salt}(pkSeed, pkRoot));
+        } else if (variant == 5) {
+            verifierAddr = address(new SphincsWcPfp20Asm{salt: salt}(pkSeed, pkRoot));
+        } else if (variant == 6) {
+            verifierAddr = address(new SphincsWcFc24Asm{salt: salt}(pkSeed, pkRoot));
         } else {
             revert InvalidVariant(variant);
         }
@@ -79,6 +84,16 @@ contract SphincsAccountFactory {
         } else if (variant == 4) {
             verifierHash = keccak256(abi.encodePacked(
                 type(SphincsWcFc30Asm).creationCode,
+                abi.encode(pkSeed, pkRoot)
+            ));
+        } else if (variant == 5) {
+            verifierHash = keccak256(abi.encodePacked(
+                type(SphincsWcPfp20Asm).creationCode,
+                abi.encode(pkSeed, pkRoot)
+            ));
+        } else if (variant == 6) {
+            verifierHash = keccak256(abi.encodePacked(
+                type(SphincsWcFc24Asm).creationCode,
                 abi.encode(pkSeed, pkRoot)
             ));
         } else {

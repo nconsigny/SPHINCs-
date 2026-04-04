@@ -49,6 +49,11 @@ VARIANTS = {
             "subtree_h": 9, "sig_size": 4188},
     "c4": {"h": 30, "d": 3, "k": 8,  "a": 14, "m_max": 0,   "scheme": "fors",
             "subtree_h": 10, "sig_size": 3740},
+    "c5": {"h": 20, "d": 2, "k": 11, "a": 12, "tree_height": 16, "m_max": 98, "scheme": "pors",
+            "subtree_h": 10, "sig_size": 2888,
+            "w": 32, "log_w": 5, "l": 25, "len1": 25, "target_sum": 388, "w_mask": 0x1F},
+    "c6": {"h": 24, "d": 2, "k": 8, "a": 16, "m_max": 0, "scheme": "fors",
+            "subtree_h": 12, "sig_size": 3352},
 }
 
 # ============================================================
@@ -156,28 +161,38 @@ def pors_secret(sk_seed, sig_pos):
 #  WOTS+C
 # ============================================================
 
-def wots_keygen_pk_only(seed, sk_seed, layer, tree, kp):
+def _wots_params(cfg=None):
+    """Return (w, log_w, l, len1, target_sum, w_mask) for a variant config."""
+    if cfg and "w" in cfg:
+        w = cfg["w"]
+        return w, cfg["log_w"], cfg["l"], cfg["len1"], cfg["target_sum"], cfg["w_mask"]
+    return W, LOG_W, L, LEN1, TARGET_SUM, W_MASK
+
+
+def wots_keygen_pk_only(seed, sk_seed, layer, tree, kp, cfg=None):
     """Compute just the WOTS+C public key (no secret keys returned). Fast path for tree building."""
+    w, _, l, _, _, _ = _wots_params(cfg)
     base_adrs = make_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
     pk_elements = []
-    for i in range(L):
+    for i in range(l):
         sk_i = wots_secret(sk_seed, layer, tree, kp, i)
         chain_adrs = set_chain_index(base_adrs, i)
-        pk_i = chain_hash(seed, chain_adrs, sk_i, 0, W - 1)
+        pk_i = chain_hash(seed, chain_adrs, sk_i, 0, w - 1)
         pk_elements.append(pk_i)
     pk_adrs = make_adrs(layer, tree, ADRS_WOTS_PK, kp, 0, 0, 0)
     return th_multi(seed, pk_adrs, pk_elements)
 
-def wots_keygen(seed, sk_seed, layer, tree, kp):
+def wots_keygen(seed, sk_seed, layer, tree, kp, cfg=None):
     """Full keygen: returns (sk_list, wots_pk)."""
+    w, _, l, _, _, _ = _wots_params(cfg)
     base_adrs = make_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
     sk = []
     pk_elements = []
-    for i in range(L):
+    for i in range(l):
         sk_i = wots_secret(sk_seed, layer, tree, kp, i)
         sk.append(sk_i)
         chain_adrs = set_chain_index(base_adrs, i)
-        pk_i = chain_hash(seed, chain_adrs, sk_i, 0, W - 1)
+        pk_i = chain_hash(seed, chain_adrs, sk_i, 0, w - 1)
         pk_elements.append(pk_i)
     pk_adrs = make_adrs(layer, tree, ADRS_WOTS_PK, kp, 0, 0, 0)
     wots_pk = th_multi(seed, pk_adrs, pk_elements)
@@ -187,22 +202,25 @@ def wots_digest(seed, layer, tree, kp, msg_hash, count):
     hash_adrs = make_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
     return _keccak_4x32(seed, hash_adrs, msg_hash, count)
 
-def extract_digits(d):
-    return [(d >> (i * LOG_W)) & W_MASK for i in range(LEN1)]
+def extract_digits(d, cfg=None):
+    _, log_w, _, len1, _, w_mask = _wots_params(cfg)
+    return [(d >> (i * log_w)) & w_mask for i in range(len1)]
 
-def wots_find_count(seed, layer, tree, kp, msg_hash):
+def wots_find_count(seed, layer, tree, kp, msg_hash, cfg=None):
+    _, _, _, _, target_sum, _ = _wots_params(cfg)
     for count in range(10_000_000):
         d = wots_digest(seed, layer, tree, kp, msg_hash, count)
-        digits = extract_digits(d)
-        if sum(digits) == TARGET_SUM:
+        digits = extract_digits(d, cfg)
+        if sum(digits) == target_sum:
             return count, d, digits
     raise RuntimeError("WOTS+C count grinding failed")
 
-def wots_sign(seed, sk, layer, tree, kp, msg_hash):
-    count, d, digits = wots_find_count(seed, layer, tree, kp, msg_hash)
+def wots_sign(seed, sk, layer, tree, kp, msg_hash, cfg=None):
+    w, _, l, _, _, _ = _wots_params(cfg)
+    count, d, digits = wots_find_count(seed, layer, tree, kp, msg_hash, cfg)
     base_adrs = make_adrs(layer, tree, ADRS_WOTS, kp, 0, 0, 0)
     sigma = []
-    for i in range(L):
+    for i in range(l):
         chain_adrs = set_chain_index(base_adrs, i)
         sigma_i = chain_hash(seed, chain_adrs, sk[i], 0, digits[i])
         sigma.append(sigma_i)
@@ -237,23 +255,23 @@ def get_auth_path(tree_nodes, leaf_idx, height):
 #  Hypertree: Build subtree root (compute all 512 WOTS PKs)
 # ============================================================
 
-def build_subtree_root(seed, sk_seed, layer, tree, subtree_h):
+def build_subtree_root(seed, sk_seed, layer, tree, subtree_h, cfg=None):
     """Build a full subtree and return just the root. Computes all 2^subtree_h WOTS PKs."""
     n_leaves = 1 << subtree_h
     leaves = []
     for kp in range(n_leaves):
-        pk = wots_keygen_pk_only(seed, sk_seed, layer, tree, kp)
+        pk = wots_keygen_pk_only(seed, sk_seed, layer, tree, kp, cfg)
         leaves.append(pk)
     nodes = build_merkle_tree(seed, layer, tree, leaves, subtree_h)
     return nodes[subtree_h][0]
 
-def build_subtree_full(seed, sk_seed, layer, tree, subtree_h):
+def build_subtree_full(seed, sk_seed, layer, tree, subtree_h, cfg=None):
     """Build a full subtree with WOTS keypairs. Returns (wots_sks, tree_nodes, root)."""
     n_leaves = 1 << subtree_h
     wots_sks = []
     leaves = []
     for kp in range(n_leaves):
-        sk, pk = wots_keygen(seed, sk_seed, layer, tree, kp)
+        sk, pk = wots_keygen(seed, sk_seed, layer, tree, kp, cfg)
         wots_sks.append(sk)
         leaves.append(pk)
     nodes = build_merkle_tree(seed, layer, tree, leaves, subtree_h)
@@ -445,9 +463,9 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
 
     if pk_root is None:
         if d == 2:
-            pk_root = _build_hypertree_d2(seed, sk_seed, subtree_h)
+            pk_root = _build_hypertree_d2(seed, sk_seed, subtree_h, cfg)
         elif d == 3:
-            pk_root = _build_hypertree_d3(seed, sk_seed, subtree_h, h)
+            pk_root = _build_hypertree_d3(seed, sk_seed, subtree_h, h, cfg)
         else:
             raise ValueError(f"Unsupported d={d}")
 
@@ -536,21 +554,22 @@ def sign_variant(variant_name, message_int, seed=None, sk_seed=None, pk_root=Non
 
         # Build the specific subtree to get WOTS secret keys and auth path
         eprint(f"    Building subtree layer={lay} tree={idx_tree}...")
-        wots_sks, tree_nodes, _ = build_subtree_full(seed, sk_seed, lay, idx_tree, subtree_h)
+        wots_sks, tree_nodes, _ = build_subtree_full(seed, sk_seed, lay, idx_tree, subtree_h, cfg)
 
         # Sign
-        sigma, count = wots_sign(seed, wots_sks[idx_leaf], lay, idx_tree, idx_leaf, current_node)
+        sigma, count = wots_sign(seed, wots_sks[idx_leaf], lay, idx_tree, idx_leaf, current_node, cfg)
         auth_path = get_auth_path(tree_nodes, idx_leaf, subtree_h)
         ht_layers.append((sigma, count, auth_path))
 
         # Verify internally: compute what verifier would get
+        vw, _, vl, _, _, _ = _wots_params(cfg)
         d_val = wots_digest(seed, lay, idx_tree, idx_leaf, current_node, count)
-        digits = extract_digits(d_val)
+        digits = extract_digits(d_val, cfg)
         base_adrs = make_adrs(lay, idx_tree, ADRS_WOTS, idx_leaf, 0, 0, 0)
         pk_elements = []
-        for i in range(L):
+        for i in range(vl):
             ca = set_chain_index(base_adrs, i)
-            pk_elements.append(chain_hash(seed, ca, sigma[i], digits[i], W - 1 - digits[i]))
+            pk_elements.append(chain_hash(seed, ca, sigma[i], digits[i], vw - 1 - digits[i]))
         pk_adrs = make_adrs(lay, idx_tree, ADRS_WOTS_PK, idx_leaf, 0, 0, 0)
         wots_pk_v = th_multi(seed, pk_adrs, pk_elements)
 
@@ -617,24 +636,24 @@ def _build_subtree_root_worker(args):
     return build_subtree_root(seed, sk_seed, layer, tree, subtree_h)
 
 
-def _build_hypertree_d2(seed, sk_seed, subtree_h):
+def _build_hypertree_d2(seed, sk_seed, subtree_h, cfg=None):
     """Build pkRoot for d=2 hypertree.
-    pkRoot = Merkle root of 512 WOTS PKs at (layer=1, tree=0, kp=0..511).
-    Only needs 1 subtree computation (~2.5s)."""
+    pkRoot = Merkle root of 2^subtree_h WOTS PKs at (layer=1, tree=0).
+    Only needs 1 subtree computation."""
     eprint(f"  Computing pkRoot (1 subtree at top layer)...")
     t0 = time.time()
-    pk_root = build_subtree_root(seed, sk_seed, 1, 0, subtree_h)
+    pk_root = build_subtree_root(seed, sk_seed, 1, 0, subtree_h, cfg)
     eprint(f"  pkRoot done: {time.time()-t0:.1f}s")
     return pk_root
 
 
-def _build_hypertree_d3(seed, sk_seed, subtree_h, h):
+def _build_hypertree_d3(seed, sk_seed, subtree_h, h, cfg=None):
     """Build pkRoot for d=3 hypertree.
-    pkRoot = Merkle root of 512 WOTS PKs at (layer=2, tree=0, kp=0..511).
-    Only needs 1 subtree computation (~2.5s)."""
+    pkRoot = Merkle root of 2^subtree_h WOTS PKs at (layer=2, tree=0).
+    Only needs 1 subtree computation."""
     eprint(f"  Computing pkRoot (1 subtree at top layer=2)...")
     t0 = time.time()
-    pk_root = build_subtree_root(seed, sk_seed, 2, 0, subtree_h)
+    pk_root = build_subtree_root(seed, sk_seed, 2, 0, subtree_h, cfg)
     eprint(f"  pkRoot done: {time.time()-t0:.1f}s")
     return pk_root
 
@@ -656,14 +675,14 @@ def abi_encode(seed, root, sig):
 
 def main():
     if len(sys.argv) != 3:
-        eprint("Usage: python3 signer.py <c1|c2|c3|c4> <0x_message_hex>")
+        eprint("Usage: python3 signer.py <c1|c2|c3|c4|c5|c6> <0x_message_hex>")
         sys.exit(1)
 
     variant = sys.argv[1]
     msg_hex = sys.argv[2]
 
     if variant not in VARIANTS:
-        eprint(f"Unknown variant: {variant}. Use c1, c2, c3, or c4.")
+        eprint(f"Unknown variant: {variant}. Use c1, c2, c3, c4, c5, or c6.")
         sys.exit(1)
 
     if msg_hex.startswith("0x"):

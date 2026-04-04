@@ -243,7 +243,7 @@ def cmd_create(args):
     print(f"  pkSeed: {to_hex(seed)}")
     print(f"  pkRoot: {to_hex(root)}")
 
-    variant_num = {"c2": 2, "c3": 3, "c4": 4}[args.variant]
+    variant_num = {"c2": 2, "c3": 3, "c4": 4, "c5": 5, "c6": 6}[args.variant]
 
     # Compute counterfactual address
     factory = args.factory
@@ -435,7 +435,7 @@ def main():
     p_create = sub.add_parser("create", help="Create a new SPHINCS+ account")
     p_create.add_argument("--factory", required=True, help="Factory contract address")
     p_create.add_argument("--ecdsa-key", required=True, help="ECDSA private key (hex)")
-    p_create.add_argument("--variant", choices=["c2", "c3", "c4"], default="c2", help="SPHINCS+ variant")
+    p_create.add_argument("--variant", choices=["c2", "c3", "c4", "c5", "c6"], default="c2", help="SPHINCS+ variant")
 
     # send
     p_send = sub.add_parser("send", help="Send a UserOp")
@@ -443,12 +443,12 @@ def main():
     p_send.add_argument("--ecdsa-key", required=True, help="ECDSA private key (hex)")
     p_send.add_argument("--to", required=True, help="Recipient address")
     p_send.add_argument("--value", default="0.001", help="Value in ETH")
-    p_send.add_argument("--variant", choices=["c2", "c3", "c4"], default="c2", help="SPHINCS+ variant")
+    p_send.add_argument("--variant", choices=["c2", "c3", "c4", "c5", "c6"], default="c2", help="SPHINCS+ variant")
 
     # info
     p_info = sub.add_parser("info", help="Show account info")
     p_info.add_argument("--ecdsa-key", required=True, help="ECDSA private key (hex)")
-    p_info.add_argument("--variant", choices=["c2", "c3", "c4"], default="c2", help="SPHINCS+ variant")
+    p_info.add_argument("--variant", choices=["c2", "c3", "c4", "c5", "c6"], default="c2", help="SPHINCS+ variant")
 
     args = parser.parse_args()
 
