@@ -86,6 +86,50 @@ fn test_full_sign_produces_valid_sig() {
 }
 
 #[test]
+#[ignore] // ~3s in release mode
+fn test_from_mnemonic_produces_valid_sig() {
+    // Standard BIP-39 test mnemonic (DO NOT use with real funds)
+    let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    let (pk_seed, sk_seed, pk_root, ecdsa_addr) =
+        sphincs_c6_signer::keygen::from_mnemonic(mnemonic, "").expect("keygen failed");
+
+    // pkSeed should be non-zero and masked to top 128 bits
+    assert!(pk_seed[0] != 0 || pk_seed[1] != 0, "pkSeed is zero");
+    assert_eq!(pk_seed[2], 0, "pkSeed bottom bits should be zero (N_MASK)");
+    assert_eq!(pk_seed[3], 0, "pkSeed bottom bits should be zero (N_MASK)");
+
+    // pkRoot should be non-zero and masked
+    assert!(pk_root[0] != 0 || pk_root[1] != 0, "pkRoot is zero");
+    assert_eq!(pk_root[2], 0, "pkRoot bottom bits should be zero");
+
+    // ECDSA address should be the standard one for this mnemonic
+    assert!(ecdsa_addr.starts_with("0x"), "address should start with 0x");
+    assert_eq!(ecdsa_addr.len(), 42, "address should be 42 chars");
+
+    // Sign a test message
+    let message = hash::keccak256(b"test mnemonic signing");
+    let sig = sphincs::sign(pk_seed, sk_seed, pk_root, message)
+        .expect("signing with mnemonic-derived keys failed");
+    assert_eq!(sig.len(), 3352, "sig size");
+    assert!(sig[0..16].iter().any(|&b| b != 0), "R is zero");
+
+    // Verify the derivation is deterministic
+    let (pk_seed2, _, pk_root2, addr2) =
+        sphincs_c6_signer::keygen::from_mnemonic(mnemonic, "").expect("second keygen failed");
+    assert_eq!(pk_seed, pk_seed2, "pkSeed not deterministic");
+    assert_eq!(pk_root, pk_root2, "pkRoot not deterministic");
+    assert_eq!(ecdsa_addr, addr2, "address not deterministic");
+
+    // Different passphrase should give different keys
+    let (pk_seed3, _, _, _) =
+        sphincs_c6_signer::keygen::from_mnemonic(mnemonic, "my passphrase").expect("keygen with passphrase failed");
+    assert_ne!(pk_seed, pk_seed3, "passphrase should change keys");
+
+    println!("Mnemonic keygen: pkSeed={}, pkRoot={}, addr={}", u256_hex(&pk_seed), u256_hex(&pk_root), ecdsa_addr);
+}
+
+#[test]
 fn test_keccak256_empty() {
     let hash = hash::keccak256(b"");
     assert_eq!(
