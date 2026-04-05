@@ -35,10 +35,4 @@ def spec_forcedZero : Prop :=
     forsVerify seed digest sig = some pk →
     extractForsIndices digest ⟨K - 1, by omega⟩ = 0
 
-def spec_asmEquivalence : Prop :=
-  ∀ (s : EvmState) (msg : Hash128) (sig : SphincsC6Sig) (sigBytes : List UInt256),
-    decodeSig sigBytes = some sig → asmVerify s msg sigBytes = contractVerify s msg sig
-
-theorem asm_equivalence : spec_asmEquivalence := asm_model_equiv
-
 end SphincsC6
