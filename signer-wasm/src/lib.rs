@@ -1,4 +1,7 @@
-//! SPHINCS+ C6 WASM signer with BIP-39/44 key derivation.
+//! SPHINCS+ C6 WASM signer with post-quantum-safe BIP-39 key derivation.
+//!
+//! SPHINCS+ keys are derived directly from the BIP-39 seed via HMAC-SHA512,
+//! bypassing ECDSA. The ECDSA address is derived independently for account ID.
 //!
 //! C6: W+C_F+C h=24, d=2, a=16, k=8, w=16, l=32, target_sum=240
 
