@@ -49,7 +49,7 @@ No ECDSA required — the account validates with SPHINCS+ only via the APPROVE o
 | Variant | Scheme | Sig size | Verify gas | 4337 total | Security |
 |---|---|---|---|---|---|
 | C2 | FORS+C h=18 d=2 | 4040 bytes | 193K | 412K | 128-bit |
-| **C6** | **FORS+C h=24 d=2 a=16 k=8** | **3352 bytes** | **156K** | **335K** | **128-bit @ 2^20 sigs** |
+| **C6** | **FORS+C h=24 d=2 a=16 k=8** | **3352 bytes** | **156K** | **301K** | **128-bit @ 2^20 sigs** |
 
 C6 is the gas-optimal candidate, found via calibrated EVM cost model (see `SPHINCS-Parameters/`).
 
