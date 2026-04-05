@@ -20,15 +20,13 @@ Post-quantum signature verification on Ethereum using hash-based signatures (SPH
 ```
 BIP-39 mnemonic (12/24 words)
     │
-    ▼  BIP-44: m/44'/60'/0'/0/0
-ECDSA private key
+    ▼  PBKDF2 → 512-bit seed
     │
-    ├── signs UserOp (classical, secp256k1)
+    ├── HMAC-SHA512("sphincs-c6-v1") → SPHINCS+ keypair (quantum-safe path)
+    │       ├── pkSeed + pkRoot → stored in verifier contract (on-chain)
+    │       └── sk_seed         → never stored, rederived per session
     │
-    └── derives SPHINCS+ keypair (keccak256 chain)
-            │
-            ├── pkSeed + pkRoot → stored in verifier contract (on-chain)
-            └── sk_seed         → never stored, rederived per session
+    └── BIP-32 m/44'/60'/0'/0/0 → ECDSA key (independent, signs UserOps)
 
 UserOp signature = abi.encode(ecdsaSig[65], sphincsSig[3352])
 
@@ -59,33 +57,31 @@ C6 is the gas-optimal candidate, found via calibrated EVM cost model (see `SPHIN
 
 ## Key Derivation
 
-### BIP-39/44 Path (Rust WASM signer)
+### BIP-39 Path (Rust WASM signer)
 
-The Rust signer (`signer-wasm/`) derives SPHINCS+ keys from a standard BIP-39 mnemonic:
+The Rust signer (`signer-wasm/`) derives SPHINCS+ keys from a standard BIP-39 mnemonic. The SPHINCS+ secret key is derived directly from the BIP-39 seed via HMAC-SHA512, **bypassing ECDSA entirely** — a quantum attacker who recovers the ECDSA private key via Shor's algorithm learns nothing about `sk_seed`.
 
 ```
 BIP-39 mnemonic (12 or 24 words)
     │
     ▼  PBKDF2 → 512-bit seed
     │
-    ▼  BIP-32 derivation at m/44'/60'/0'/0/0
+    ├──▶ HMAC-SHA512(key="sphincs-c6-v1", data=seed) → sphincs_master (64 bytes)
+    │       │
+    │       ├──▶ keccak256("pk_seed" || sphincs_master[0..32]) & N_MASK → pkSeed  (public, on-chain)
+    │       └──▶ keccak256("sk_seed" || sphincs_master[0..32])          → sk_seed (secret, never stored)
+    │                                                                         │
+    │                                                                         ▼
+    │                                                                   hypertree build → pkRoot (public, on-chain)
     │
-ECDSA private key (32 bytes)
-    │
-    ▼  keccak256("sphincs_signer_v1" || keccak256(key))
-entropy
-    ├──▶ keccak256("pk_seed" || entropy) & N_MASK → pkSeed  (public, on-chain)
-    └──▶ keccak256("sk_seed" || entropy)          → sk_seed (secret, never stored)
-                                                        │
-                                                        ▼
-                                                  hypertree build → pkRoot (public, on-chain)
+    └──▶ BIP-32 m/44'/60'/0'/0/0 → ECDSA address (independent, for account identification only)
 ```
 
-Users can use their existing 12/24 word seed phrase. The SPHINCS+ keypair is deterministically derived from the same mnemonic as their Ethereum account.
+Users can use their existing 12/24 word seed phrase. The SPHINCS+ keypair and ECDSA address are both deterministically derived from the same mnemonic, but through independent paths — compromising one does not compromise the other.
 
 ### Legacy Path (Python signer)
 
-The Python signer derives directly from an ECDSA private key + variant tag, without BIP-39.
+The Python signer derives directly from an ECDSA private key + variant tag, without BIP-39. This path is **not post-quantum safe** if the ECDSA public key has been exposed on-chain.
 
 ## Signers
 
