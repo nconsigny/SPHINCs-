@@ -21,3 +21,13 @@ venv/
 
 # Foundry broadcast run artifacts (deployment-specific, contain tx hashes and keys)
 broadcast/
+
+# Ralph agent state
+.ralph/
+
+# Frame deployment state (chain-specific)
+script/.frame_c6_deploy.json
+
+# Rust/WASM build artifacts
+signer-wasm/target/
+signer-wasm/pkg/
