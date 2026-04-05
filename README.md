@@ -176,31 +176,16 @@ cd signer-wasm && cargo test --release -- --ignored  # Rust signer roundtrip
 
 ## Formal Verification (Lean 4 / Verity)
 
-The `verity/` directory contains a Lean 4 formal model and a Verity CompilationModel of the C6 verifier. The [Verity](https://github.com/Th0rgal/verity) compiler generates the **entire verification pipeline** — H_msg, FORS+C, hypertree, WOTS chains — directly from the Lean model. No opaque oracle; every keccak hash chain is traceable to the EDSL source.
+The C6 verifier is formally verified in Lean 4 via [Verity](https://github.com/Th0rgal/verity): **3 axioms** (keccak256 cryptographic assumptions), **20 theorems** (chain binding, Merkle binding, digit sum, forced-zero, soundness), **0 sorry**.
 
-Three levels of formal verification, each with increasing trust guarantees:
+The entire SPHINCS+ verification pipeline is compiled from Lean to Yul by the Verity compiler — no opaque oracle. The `verity_contract` macro version gets full Layer 1-2-3 compilation correctness proofs.
 
-**1. Lean functional model** (`verity/SphincsC6/`) — 3 axioms, 20 theorems, 0 sorry:
-- Proves WOTS chain roundtrip, digit sum invariant, FORS forced-zero, Merkle/FORS/chain binding
-- All axioms are irreducible keccak256 cryptographic assumptions
+| Version | Gas (EOA) | Formal guarantee |
+|---|---|---|
+| Hand-optimized ASM | 234K | Differential testing |
+| **`verity_contract` macro** | **283K** | **Verity Layer 1-2-3 proofs** |
 
-**2. Manual CompilationModel** (`verity/SphincsC6Full/`) — compiled by Verity to Yul:
-- Full verification pipeline in `Stmt`/`Expr` DSL, no oracle
-- Spec.lean, Invariants.lean, Proofs/Basic.lean (Verity pattern)
-- Compiled: `lake exe verity-compiler --module Contracts.SphincsC6Full`
-
-**3. `verity_contract` macro** (`verity/SphincsC6V/`) — full Layer 1 typed-IR proofs:
-- Uses memory-as-state pattern for loop-carried variables (mstore/mload at fixed scratch slots)
-- Gets automatic typed-IR compilation correctness from Verity's generic theorem
-- Compiled: `lake exe verity-compiler --module Contracts.SphincsC6V.SphincsC6V`
-
-All three compile to Yul, deploy on Sepolia, and verify the same signatures:
-
-| Version | Gas (EOA) | Bytecode | Formal guarantee |
-|---|---|---|---|
-| Hand-optimized ASM | 234K | 1175 bytes | Differential testing only |
-| Manual CompilationModel | 255K | 1225 bytes | Verity Layer 2-3 proofs |
-| **`verity_contract` macro** | **283K** | **1403 bytes** | **Verity Layer 1-2-3 proofs** |
+See [`verity/README.md`](verity/README.md) for the full proof inventory, build instructions, and architecture.
 
 ## References
 
