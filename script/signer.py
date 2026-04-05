@@ -41,17 +41,8 @@ Z = 0
 W_MASK = 0xF
 
 VARIANTS = {
-    "c1": {"h": 18, "d": 2, "k": 13, "a": 13, "tree_height": 17, "m_max": 172, "scheme": "pors",
-            "subtree_h": 9, "sig_size": 4296},
     "c2": {"h": 18, "d": 2, "k": 13, "a": 13, "m_max": 0,   "scheme": "fors",
             "subtree_h": 9, "sig_size": 4040},
-    "c3": {"h": 27, "d": 3, "k": 11, "a": 11, "tree_height": 15, "m_max": 126,  "scheme": "pors",
-            "subtree_h": 9, "sig_size": 4188},
-    "c4": {"h": 30, "d": 3, "k": 8,  "a": 14, "m_max": 0,   "scheme": "fors",
-            "subtree_h": 10, "sig_size": 3740},
-    "c5": {"h": 20, "d": 2, "k": 11, "a": 12, "tree_height": 16, "m_max": 98, "scheme": "pors",
-            "subtree_h": 10, "sig_size": 2888,
-            "w": 32, "log_w": 5, "l": 25, "len1": 25, "target_sum": 388, "w_mask": 0x1F},
     "c6": {"h": 24, "d": 2, "k": 8, "a": 16, "m_max": 0, "scheme": "fors",
             "subtree_h": 12, "sig_size": 3352},
 }
@@ -675,14 +666,14 @@ def abi_encode(seed, root, sig):
 
 def main():
     if len(sys.argv) != 3:
-        eprint("Usage: python3 signer.py <c1|c2|c3|c4|c5|c6> <0x_message_hex>")
+        eprint("Usage: python3 signer.py <c2|c6> <0x_message_hex>")
         sys.exit(1)
 
     variant = sys.argv[1]
     msg_hex = sys.argv[2]
 
     if variant not in VARIANTS:
-        eprint(f"Unknown variant: {variant}. Use c1, c2, c3, c4, c5, or c6.")
+        eprint(f"Unknown variant: {variant}. Use c2 or c6.")
         sys.exit(1)
 
     if msg_hex.startswith("0x"):

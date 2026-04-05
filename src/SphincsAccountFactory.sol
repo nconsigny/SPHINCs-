@@ -5,14 +5,11 @@ import "@openzeppelin/contracts/utils/Create2.sol";
 import "account-abstraction/interfaces/IEntryPoint.sol";
 import "./SphincsAccount.sol";
 import "./SPHINCs-C2Asm.sol";
-import "./SPHINCs-C4Asm.sol";
-import "./SPHINCs-C3Asm.sol";
-import "./SPHINCs-C5Asm.sol";
 import "./SPHINCs-C6Asm.sol";
 
 /// @title SphincsAccountFactory - Factory for hybrid ECDSA + SPHINCS+ 4337 accounts
 /// @notice Deploys a per-user SPHINCS+ verifier and a SphincsAccount in a single call.
-///         Supports variants 2-6.
+///         Supports variant 2 (FORS+C h=18) and variant 6 (FORS+C h=24).
 contract SphincsAccountFactory {
     IEntryPoint public immutable entryPoint;
 
@@ -24,12 +21,7 @@ contract SphincsAccountFactory {
         entryPoint = _entryPoint;
     }
 
-    /// @notice Create a new hybrid ECDSA + SPHINCS+ account
-    /// @param ecdsaOwner  The ECDSA signer address (EOA)
-    /// @param pkSeed      SPHINCS+ public seed
-    /// @param pkRoot      SPHINCS+ public root
-    /// @param variant     2 = FORS+C h=18, 3 = PORS+FP h=27, 4 = FORS+C h=30, 5 = PORS+FP h=20 w=32
-    /// @return account    The deployed SphincsAccount
+    /// @param variant     2 = FORS+C h=18, 6 = FORS+C h=24 (gas-optimal)
     function createAccount(
         address ecdsaOwner,
         bytes32 pkSeed,
@@ -38,29 +30,19 @@ contract SphincsAccountFactory {
     ) external returns (SphincsAccount account) {
         bytes32 salt = keccak256(abi.encodePacked(ecdsaOwner, pkSeed, pkRoot, variant));
 
-        // Deploy verifier
         address verifierAddr;
         if (variant == 2) {
             verifierAddr = address(new SphincsC2Asm{salt: salt}(pkSeed, pkRoot));
-        } else if (variant == 3) {
-            verifierAddr = address(new SphincsC3Asm{salt: salt}(pkSeed, pkRoot));
-        } else if (variant == 4) {
-            verifierAddr = address(new SphincsC4Asm{salt: salt}(pkSeed, pkRoot));
-        } else if (variant == 5) {
-            verifierAddr = address(new SphincsC5Asm{salt: salt}(pkSeed, pkRoot));
         } else if (variant == 6) {
             verifierAddr = address(new SphincsC6Asm{salt: salt}(pkSeed, pkRoot));
         } else {
             revert InvalidVariant(variant);
         }
 
-        // Deploy account
         account = new SphincsAccount{salt: salt}(entryPoint, ecdsaOwner, verifierAddr);
-
         emit AccountCreated(address(account), verifierAddr, ecdsaOwner, variant);
     }
 
-    /// @notice Precompute the account address for given parameters
     function getAddress(
         address ecdsaOwner,
         bytes32 pkSeed,
@@ -69,26 +51,10 @@ contract SphincsAccountFactory {
     ) external view returns (address) {
         bytes32 salt = keccak256(abi.encodePacked(ecdsaOwner, pkSeed, pkRoot, variant));
 
-        // Compute verifier address first
         bytes32 verifierHash;
         if (variant == 2) {
             verifierHash = keccak256(abi.encodePacked(
                 type(SphincsC2Asm).creationCode,
-                abi.encode(pkSeed, pkRoot)
-            ));
-        } else if (variant == 3) {
-            verifierHash = keccak256(abi.encodePacked(
-                type(SphincsC3Asm).creationCode,
-                abi.encode(pkSeed, pkRoot)
-            ));
-        } else if (variant == 4) {
-            verifierHash = keccak256(abi.encodePacked(
-                type(SphincsC4Asm).creationCode,
-                abi.encode(pkSeed, pkRoot)
-            ));
-        } else if (variant == 5) {
-            verifierHash = keccak256(abi.encodePacked(
-                type(SphincsC5Asm).creationCode,
                 abi.encode(pkSeed, pkRoot)
             ));
         } else if (variant == 6) {
@@ -101,7 +67,6 @@ contract SphincsAccountFactory {
         }
         address verifierAddr = Create2.computeAddress(salt, verifierHash);
 
-        // Compute account address
         bytes32 accountHash = keccak256(abi.encodePacked(
             type(SphincsAccount).creationCode,
             abi.encode(entryPoint, ecdsaOwner, verifierAddr)
