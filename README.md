@@ -130,7 +130,7 @@ lake exe verity-compiler --module Contracts.SphincsC6.SphincsC6 \
 
 Both the hand-optimized and Verity-compiled versions are deployed on Sepolia and verify the same signatures.
 
-## Deployed Contracts
+## Deployed Contracts & Transactions
 
 ### Sepolia (ERC-4337 Hybrid)
 
@@ -142,14 +142,30 @@ Both the hand-optimized and Verity-compiled versions are deployed on Sepolia and
 | C6 Verifier (Verity) | [`0x77bE5...`](https://sepolia.etherscan.io/address/0x77bE5c7E9196599478eC79fB815AcB21eb00Fd12) |
 | EntryPoint v0.9 | `0x433709009B8330FDa32311DF1C2AFA402eD8D009` |
 
+**Transactions:**
+
+| Description | Gas | Tx |
+|---|---|---|
+| C6 hybrid UserOp (ECDSA + SPHINCS+) | 335,021 | [`0x8ffc857b...`](https://sepolia.etherscan.io/tx/0x8ffc857b5858175e9bcf7f1121653eef320e6b13f7a89b20f59d09f7bec189d1) |
+| C6 verify — hand-optimized ASM | 231,350 | [`0xf91c864f...`](https://sepolia.etherscan.io/tx/0xf91c864f1e51fbc65d1a25815304632b2c10feba8b12c1ca2e6562dbfb2423a3) |
+| C6 verify — Verity-compiled | 268,107 | [`0xca402720...`](https://sepolia.etherscan.io/tx/0xca4027205df0960cbb0982e05898ac2d7f877f8c0afaa41637934c3342d290ea) |
+| C2 hybrid UserOp | 412,126 | See `trace_c2_summary.txt` |
+| C5 hybrid UserOp | 403,636 | See `trace_c5_summary.txt` |
+
 ### ethrex Testnet (EIP-8141 Frame Tx — Pure PQ)
 
 | Contract | Address |
 |---|---|
-| C6 Verifier | `0x7969c5eD335650692Bc04293B07F5BF2e7A673C0` |
-| Frame Account | `0xFD471836031dc5108809D173A067e8486B9047A3` |
+| C6 Verifier | [`0x7969c5...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x7969c5eD335650692Bc04293B07F5BF2e7A673C0) |
+| Frame Account | [`0xFD4718...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xFD471836031dc5108809D173A067e8486B9047A3) |
 
-Chain ID: 1729. Frame tx block 534292 — both VERIFY and SENDER frames succeeded.
+**Transactions:**
+
+| Description | Tx |
+|---|---|
+| Frame tx — SPHINCS+ C6 pure PQ verification (block 534292) | [`0xb2dc8be4...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0xb2dc8be4ad34285c6eb835db675ef0463d23d5fd53c56f543ee0fe29aa7ecfc3) |
+
+Chain ID: 1729. Both VERIFY and SENDER frames succeeded — no ECDSA, pure post-quantum.
 
 ## Setup
 
