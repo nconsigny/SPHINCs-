@@ -132,39 +132,37 @@ All three compile to Yul, deploy on Sepolia, and verify the same signatures:
 
 | Contract | Address |
 |---|---|
-| Factory (C2-C6) | [`0x795C1386...`](https://sepolia.etherscan.io/address/0x795C138673E934c3809477d2507fBF86985f8c2F) |
-| C6 Account | [`0x79169...`](https://sepolia.etherscan.io/address/0x7916968db92A3fbaFBb13b61B60C940811689337) |
-| C6 Verifier (ASM) | [`0xc8aa8...`](https://sepolia.etherscan.io/address/0xc8aa83f6419f95bd8728ee9df225e93c6694da6b) |
-| C6 Verifier (Verity, CompilationModel) | [`0xddd28...`](https://sepolia.etherscan.io/address/0xddd28faE24f10B029F55dc674d1c6105AFfBe1C8) |
-| C6 Verifier (Verity, `verity_contract`) | [`0x1Cb55...`](https://sepolia.etherscan.io/address/0x1Cb55Ab57DA464A9A90DEC6b1560EdBE5004E069) |
-| C6 Account (Verity macro verifier) | [`0x54C76...`](https://sepolia.etherscan.io/address/0x54C76035CBFE593aB0a8027fA22A7E153E72ca4e) |
+| Factory | [`0x6c523b...`](https://sepolia.etherscan.io/address/0x6c523b4FC4DBDB57067a516ad1186329d6ba0D5e) |
+| C6 Account (ASM) | [`0x1e8320...`](https://sepolia.etherscan.io/address/0x1e8320b5ce068d72aab8a4777d0a462bcd87ce11) |
+| C6 Verifier (ASM) | [`0xD8acb5...`](https://sepolia.etherscan.io/address/0xD8acb5342d8b46dCB388A82C582a5A24BF68e40A) |
+| C6 Verifier (`verity_contract`) | [`0xd006d9...`](https://sepolia.etherscan.io/address/0xd006d936e39d9b997775b5fACe204e4aF58c86A5) |
+| C6 Account (`verity_contract`) | [`0x5961f6...`](https://sepolia.etherscan.io/address/0x5961f6DeFBa70658736489Fdfc49Dac9E035A77A) |
 | EntryPoint v0.9 | `0x433709009B8330FDa32311DF1C2AFA402eD8D009` |
 
 **Transactions:**
 
 | Description | Gas | Tx |
 |---|---|---|
-| C6 hybrid UserOp — ASM verifier | 335,021 | [`0x8ffc857b...`](https://sepolia.etherscan.io/tx/0x8ffc857b5858175e9bcf7f1121653eef320e6b13f7a89b20f59d09f7bec189d1) |
-| C6 hybrid UserOp — `verity_contract` verifier | 383,378 | [`0xd9957b39...`](https://sepolia.etherscan.io/tx/0xd9957b395c229c9975d403e93b585f5c512dfa9769ae0d9d7bf1d680474555d3) |
-| C6 EOA verify — hand-optimized ASM | 231,350 | [`0xf91c864f...`](https://sepolia.etherscan.io/tx/0xf91c864f1e51fbc65d1a25815304632b2c10feba8b12c1ca2e6562dbfb2423a3) |
-| C2 hybrid UserOp (ASM) | 412,126 | See `trace_c2_summary.txt` |
+| C6 hybrid UserOp — ASM (send to 0xdead) | 334,750 | [`0x74f8be55...`](https://sepolia.etherscan.io/tx/0x74f8be55dceea67a4ef0e3a26aeb47528eae736c089ee9a159ca51faaf390f27) |
+| C6 hybrid UserOp — ASM (real ETH transfer) | 300,826 | [`0xe63296bf...`](https://sepolia.etherscan.io/tx/0xe63296bfe277433dcb28a9bbb03eec25d2ef860041338e270225eb1d6fa7ca68) |
+| C6 hybrid UserOp — `verity_contract` | 383,396 | [`0xd63462d0...`](https://sepolia.etherscan.io/tx/0xd63462d0e78342181a0bf884c1ae0dc60e8b6cf0df278f21724903bba83bc38d) |
 
-**Gas breakdown:** The 4337 UserOp gas includes base tx cost (21K), calldata (~54K for 3352-byte sig), EntryPoint overhead (~80K), ECDSA verification (~3K), and SPHINCS+ verify. The pure SPHINCS+ compute cost is **~156K gas** (ASM) / **~205K gas** (`verity_contract`), visible as the inner `verifier.staticcall()` in the trace. The 14% 4337 overhead (383K vs 335K) is the cost of full Layer 1 formal verification through Verity.
+**Gas breakdown:** The 4337 UserOp gas includes base tx cost (21K), calldata (~54K for 3352-byte sig), EntryPoint overhead (~80K), ECDSA verification (~3K), and SPHINCS+ verify. The pure SPHINCS+ compute cost is **~156K gas** (ASM) / **~205K gas** (`verity_contract`), visible as the inner `verifier.staticcall()` in the trace.
 
 ### ethrex Testnet (EIP-8141 Frame Tx — Pure PQ)
 
 | Contract | Address |
 |---|---|
-| C6 Verifier | [`0x7969c5...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x7969c5eD335650692Bc04293B07F5BF2e7A673C0) |
-| Frame Account | [`0xFD4718...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xFD471836031dc5108809D173A067e8486B9047A3) |
+| C6 Verifier | [`0x5081a3...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x5081a39b8A5f0E35a8D959395a630b68B74Dd30f) |
+| Frame Account | [`0x1fA02b...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x1fA02b2d6A771842690194Cf62D91bdd92BfE28d) |
 
 **Transactions:**
 
 | Description | Gas | Tx |
 |---|---|---|
-| Frame tx — SPHINCS+ C6 pure PQ (block 534292) | 229,867 | [`0xb2dc8be4...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0xb2dc8be4ad34285c6eb835db675ef0463d23d5fd53c56f543ee0fe29aa7ecfc3) |
+| Frame tx — SPHINCS+ C6 pure PQ (block 586490) | 229,776 | [`0x36200cda...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0x36200cdab09b0147811e22493cf2ba50e9467d365b2f2a77562629f11c18acb0) |
 
-Chain ID: 1729. Both VERIFY and SENDER frames succeeded — no ECDSA, pure post-quantum. The frame tx gas (230K) is lower than the 4337 hybrid (335K) because there is no EntryPoint overhead or ECDSA verification.
+Chain ID: 1729. Both VERIFY (159K gas) and SENDER frames succeeded — no ECDSA, pure post-quantum. The frame tx gas (230K) is lower than the 4337 hybrid (335K) because there is no EntryPoint overhead or ECDSA verification.
 
 ## Setup
 
