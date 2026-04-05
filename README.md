@@ -106,7 +106,7 @@ cargo test --release -- --ignored
 
 ## Formal Verification (Lean 4 / Verity)
 
-The `verity/` directory contains a Lean 4 formal model of the C6 verifier, compilable via the [Verity](https://github.com/Th0rgal/verity) framework.
+The `verity/` directory contains a Lean 4 formal model and a Verity CompilationModel of the C6 verifier. The [Verity](https://github.com/Th0rgal/verity) compiler generates the **entire verification pipeline** — H_msg, FORS+C, hypertree, WOTS chains — directly from the Lean model. No opaque oracle; every keccak hash chain is traceable to the EDSL source.
 
 ```
 verity/
@@ -116,19 +116,19 @@ verity/
 │   ├── WotsC.lean       ← WOTS+C w=16 verification
 │   ├── ForsC.lean       ← FORS+C forced-zero last tree
 │   ├── Hypertree.lean   ← D=2 layers, subtree_h=12
-│   ├── Contract.lean    ← Verity Contract monad + oracle model
+│   ├── Contract.lean    ← Verity Contract monad + security properties
 │   └── Spec.lean        ← Proven: param consistency, sig size, soundness
-├── external-libs/       ← SphincsC6Verify.yul (full verification oracle)
-└── artifacts/           ← Verity-compiled SphincsC6Verifier.yul
+├── SphincsC6Full.lean   ← Full CompilationModel EDSL (no oracle)
+└── artifacts/
+    └── SphincsC6Full.yul ← Verity-compiled (273 lines, 1225 bytes runtime)
 ```
 
-The Verity compiler generates a complete Yul contract from the Lean model:
 ```bash
-lake exe verity-compiler --module Contracts.SphincsC6.SphincsC6 \
-  --link examples/external-libs/SphincsC6Verify.yul -o artifacts/yul
+# Compile from Lean to Yul (no --link, no oracle)
+lake exe verity-compiler --module Contracts.SphincsC6Full -o artifacts/yul
 ```
 
-Both the hand-optimized and Verity-compiled versions are deployed on Sepolia and verify the same signatures.
+The Verity-compiled contract verifies the same signatures as the hand-optimized ASM, with 9% gas overhead (255K vs 234K EOA call) from additional ABI safety checks.
 
 ## Deployed Contracts & Transactions
 
@@ -139,7 +139,7 @@ Both the hand-optimized and Verity-compiled versions are deployed on Sepolia and
 | Factory (C2-C6) | [`0x795C1386...`](https://sepolia.etherscan.io/address/0x795C138673E934c3809477d2507fBF86985f8c2F) |
 | C6 Account | [`0x79169...`](https://sepolia.etherscan.io/address/0x7916968db92A3fbaFBb13b61B60C940811689337) |
 | C6 Verifier (ASM) | [`0xc8aa8...`](https://sepolia.etherscan.io/address/0xc8aa83f6419f95bd8728ee9df225e93c6694da6b) |
-| C6 Verifier (Verity) | [`0x77bE5...`](https://sepolia.etherscan.io/address/0x77bE5c7E9196599478eC79fB815AcB21eb00Fd12) |
+| C6 Verifier (Verity, full) | [`0xddd28...`](https://sepolia.etherscan.io/address/0xddd28faE24f10B029F55dc674d1c6105AFfBe1C8) |
 | EntryPoint v0.9 | `0x433709009B8330FDa32311DF1C2AFA402eD8D009` |
 
 **Transactions:**
@@ -148,11 +148,11 @@ Both the hand-optimized and Verity-compiled versions are deployed on Sepolia and
 |---|---|---|
 | C6 hybrid UserOp (ECDSA + SPHINCS+) | 335,021 | [`0x8ffc857b...`](https://sepolia.etherscan.io/tx/0x8ffc857b5858175e9bcf7f1121653eef320e6b13f7a89b20f59d09f7bec189d1) |
 | C6 EOA verify — hand-optimized ASM | 231,350 | [`0xf91c864f...`](https://sepolia.etherscan.io/tx/0xf91c864f1e51fbc65d1a25815304632b2c10feba8b12c1ca2e6562dbfb2423a3) |
-| C6 EOA verify — Verity-compiled | 268,107 | [`0xca402720...`](https://sepolia.etherscan.io/tx/0xca4027205df0960cbb0982e05898ac2d7f877f8c0afaa41637934c3342d290ea) |
+| C6 EOA verify — Verity-compiled (full) | 254,971 | [`0xddd28f...`](https://sepolia.etherscan.io/address/0xddd28faE24f10B029F55dc674d1c6105AFfBe1C8) |
 | C2 hybrid UserOp | 412,126 | See `trace_c2_summary.txt` |
 | C5 hybrid UserOp | 403,636 | See `trace_c5_summary.txt` |
 
-**Gas breakdown note:** The EOA verify calls (231K / 268K) include the 21K base transaction cost and ~54K calldata cost for the 3352-byte signature. The pure SPHINCS+ compute cost is **~156K gas** — visible in the C6 hybrid UserOp trace as the inner `verifier.staticcall()`, where calldata is already paid by the outer transaction.
+**Gas breakdown note:** The EOA verify calls (231K / 255K) include the 21K base transaction cost and ~54K calldata cost for the 3352-byte signature. The pure SPHINCS+ compute cost is **~156K gas** — visible in the C6 hybrid UserOp trace as the inner `verifier.staticcall()`, where calldata is already paid by the outer transaction.
 
 ### ethrex Testnet (EIP-8141 Frame Tx — Pure PQ)
 
