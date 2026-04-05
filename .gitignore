@@ -31,3 +31,4 @@ script/.frame_c6_deploy.json
 # Rust/WASM build artifacts
 signer-wasm/target/
 signer-wasm/pkg/
+verity/.lake/
