@@ -14,12 +14,13 @@ function sphincsC6Verify(sigOffset, message, seed) -> computedRoot {
     // Read pkRoot from storage (needed for H_msg)
     let root := sload(1)
 
-    // H_msg: keccak256(seed || root || R || message)
+    // H_msg: keccak256(seed || root || R || message || domain) — 160 bytes
     let R := and(calldataload(sigOffset), N_MASK)
     mstore(0x20, root)
     mstore(0x40, R)
     mstore(0x60, message)
-    let digest := keccak256(0x00, 0x80)
+    mstore(0x80, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
+    let digest := keccak256(0x00, 0xA0)
 
     let htIdx := and(shr(128, digest), 0xFFFFFF)
 

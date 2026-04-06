@@ -116,13 +116,14 @@ def spec : CompilationModel := {
         .mstore (e 0x00) (v "seed"),
 
         -- ============================================================
-        -- H_msg: digest = keccak256(seed || root || R || message)
+        -- H_msg: digest = keccak256(seed || root || R || message || domain) — 160 bytes
         -- ============================================================
         .letVar "R" (.bitAnd (.calldataload (v "sigBase")) (e N_MASK)),
         .mstore (e 0x20) (v "root"),
         .mstore (e 0x40) (v "R"),
         .mstore (e 0x60) (p "message"),
-        .letVar "digest" (.keccak256 (e 0x00) (e 0x80)),
+        .mstore (e 0x80) (e 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF),
+        .letVar "digest" (.keccak256 (e 0x00) (e 0xA0)),
 
         -- htIdx = (digest >> 128) & 0xFFFFFF
         .letVar "htIdx" (.bitAnd (.shr (e 128) (v "digest")) (e 0xFFFFFF)),

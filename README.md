@@ -115,10 +115,8 @@ cargo test --release -- --ignored
 
 | Description | Gas | Tx |
 |---|---|---|
-| C6 hybrid UserOp — ASM (real ETH transfer) | 300,826 | [`0xe63296bf...`](https://sepolia.etherscan.io/tx/0xe63296bfe277433dcb28a9bbb03eec25d2ef860041338e270225eb1d6fa7ca68) |
-| C6 hybrid UserOp — `verity_contract` | 383,396 | [`0xd63462d0...`](https://sepolia.etherscan.io/tx/0xd63462d0e78342181a0bf884c1ae0dc60e8b6cf0df278f21724903bba83bc38d) |
-
-**Gas breakdown:** The 4337 UserOp gas includes base tx cost (21K), calldata (~54K for 3352-byte sig), EntryPoint overhead (~80K), ECDSA verification (~3K), and SPHINCS+ verify. The pure SPHINCS+ compute cost is **~156K gas** (ASM) / **~205K gas** (`verity_contract`), visible as the inner `verifier.staticcall()` in the trace.
+| Real ETH transfer (ASM verifier) | 300,826 | [`0xe63296bf...`](https://sepolia.etherscan.io/tx/0xe63296bfe277433dcb28a9bbb03eec25d2ef860041338e270225eb1d6fa7ca68) |
+| Real ETH transfer (`verity_contract` verifier) | 383,396 | [`0xd63462d0...`](https://sepolia.etherscan.io/tx/0xd63462d0e78342181a0bf884c1ae0dc60e8b6cf0df278f21724903bba83bc38d) |
 
 ### ethrex Testnet (EIP-8141 Frame Tx — Pure PQ)
 
