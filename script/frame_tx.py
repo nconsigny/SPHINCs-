@@ -277,12 +277,14 @@ def cmd_send(args):
     sphincs_sig = sign_with_known_keys("c6", sig_hash, seed_int, sk_seed, root_int)
     print(f"  Signature: {len(sphincs_sig)} bytes")
 
-    # Build VERIFY frame data: verify(bytes32 sigHash, bytes sig)
+    # Build VERIFY frame data: verify(bytes32 pkSeed, bytes32 pkRoot, bytes32 sigHash, bytes sig)
+    # The frame account forwards this directly to the shared verifier
     from eth_abi import encode
-    verify_selector = keccak256(b"verify(bytes32,bytes)").to_bytes(32, "big")[:4]
+    verify_selector = keccak256(b"verify(bytes32,bytes32,bytes32,bytes)").to_bytes(32, "big")[:4]
     verify_calldata = verify_selector + encode(
-        ["bytes32", "bytes"],
-        [sig_hash.to_bytes(32, "big"), sphincs_sig]
+        ["bytes32", "bytes32", "bytes32", "bytes"],
+        [seed_int.to_bytes(32, "big"), root_int.to_bytes(32, "big"),
+         sig_hash.to_bytes(32, "big"), sphincs_sig]
     )
 
     # Final frames with actual signature
