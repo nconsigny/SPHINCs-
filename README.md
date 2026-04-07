@@ -18,7 +18,7 @@ Post-quantum signature verification on Ethereum using hash-based signatures (SPH
 
 ### Shared Verifier Model
 
-The SPHINCS+ C6 verifier is **deployed once** and shared by all accounts. Each account stores its own public keys (`pkSeed`, `pkRoot`) and calls the shared verifier with its keys as arguments. Follows the [ZKnox/Kohaku](https://github.com/ethereum/kohaku) pattern.
+The SPHINCS- C6 verifier is **deployed once** and shared by all accounts. Each account stores its own public keys (`pkSeed`, `pkRoot`) and calls the shared verifier with its keys as arguments. Follows the [ZKnox/Kohaku](https://github.com/ethereum/kohaku) pattern.
 
 ```
 SphincsC6Asm (deployed once, stateless)
