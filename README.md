@@ -14,6 +14,24 @@
 
 Post-quantum signature verification on Ethereum using hash-based signatures (SPHINCS+ variants). Supports ERC-4337 hybrid accounts (ECDSA + SPHINCS+) and native EIP-8141 frame transaction accounts (pure PQ).
 
+## Verified Kernel
+
+This repo now includes a very small formally checked artifact:
+
+- a Merkle acceptance kernel for SPHINCS-style witnesses,
+- with the public claim that `verifyPath` accepts exactly the typed witnesses whose reconstructed root matches the stored root,
+- and `verifyPackedPath` accepts exactly the canonical packed encodings whose decoded typed witness is accepted by that same rule,
+- with read-only verification,
+- and with malformed packed encodings rejected explicitly when direction bits outside the low 4 bits are set.
+
+The verified core is intentionally smaller than a full SPHINCS verifier. Parsing, witness derivation, and full cryptographic verification stay outside that proof boundary unless they can be specified just as cleanly.
+
+Why that is still useful:
+
+- a real verifier can derive or decode a typed witness off-chain or in unverified code,
+- pass that witness to the kernel,
+- and rely on a machine-checked guarantee about the exact on-chain acceptance rule.
+
 ## Architecture
 
 ### ERC-4337 Hybrid Account
@@ -169,21 +187,44 @@ python3 script/frame_tx.py send \
 ```bash
 forge test                                    # all tests
 forge test --match-contract C6Differential    # C6 cross-validation
+forge test --match-contract MerkleKernelVerityTest -vv  # Verity kernel artifact replay
 cd signer-wasm && cargo test --release -- --ignored  # Rust signer roundtrip
 ```
 
 ## Formal Verification (Lean 4 / Verity)
 
-The C6 verifier is formally verified in Lean 4 via [Verity](https://github.com/Th0rgal/verity): **3 axioms** (keccak256 cryptographic assumptions), **20 theorems** (chain binding, Merkle binding, digit sum, forced-zero, soundness), **0 sorry**.
+The verified artifact in this repo is a small acceptance kernel in [`verity/SphincsKernel/`](verity/SphincsKernel/).
 
-The entire SPHINCS+ verification pipeline is compiled from Lean to Yul by the Verity compiler — no opaque oracle. The `verity_contract` macro version gets full Layer 1-2-3 compilation correctness proofs.
+It proves a narrow but strong property:
 
-| Version | Gas (EOA) | Formal guarantee |
-|---|---|---|
-| Hand-optimized ASM | 234K | Differential testing |
-| **`verity_contract` macro** | **283K** | **Verity Layer 1-2-3 proofs** |
+- the Lean model defines exactly which fixed-depth Merkle witnesses are accepted,
+- a typed witness reconstructs exactly one root,
+- `verifyPath` returns `true` iff that reconstructed root equals the configured root,
+- `verifyPackedPath` returns `true` iff the packed input is canonical, decodes to a typed witness, and that typed witness is accepted by the same root-equality rule,
+- verification is read-only.
 
-See [`verity/README.md`](verity/README.md) for the full proof inventory, build instructions, and architecture.
+The kernel exposes two interfaces:
+
+- `verifyPath`: explicit witness fields plus 4 direction booleans,
+- `verifyPackedPath`: the same witness with directions packed into the low 4 bits of one word.
+
+This is useful because it makes one concrete class of bugs impossible: the deployed acceptance contract cannot silently accept a different witness than the Lean model accepts.
+
+What is not claimed:
+
+- this is not a proof of full SPHINCS cryptographic security,
+- this is not an end-to-end proof of the entire production C6 verifier,
+- the kernel's `compress` function is a small stand-in, not a real SPHINCS hash primitive,
+- parsing, witness derivation, and protocol integration are outside the verified kernel.
+
+The repo also includes a direct EVM replay test for the kernel:
+
+- it recompiles `verity/artifacts/sphincs-kernel/MerkleKernel.yul`,
+- deploys that bytecode in Foundry,
+- checks named vectors,
+- fuzzes both explicit and packed witness entrypoints against a Solidity reference model.
+
+See [`verity/README.md`](verity/README.md) for the exact specs, theorem shape, strict build commands, and trust boundary.
 
 ## References
 

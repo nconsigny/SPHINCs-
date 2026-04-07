@@ -1,84 +1,115 @@
-# Formal Verification — SPHINCS+ C6
+# Formally Checked Merkle Acceptance Kernel
 
-Lean 4 formal model and [Verity](https://github.com/Th0rgal/verity)-compiled EVM bytecode for the C6 verifier (FORS+C h=24, d=2, a=16, k=8, w=16).
+This directory contains a small Verity artifact for SPHINCS-style witnesses.
 
-## Status
+The public claim is narrow and strong:
 
-**3 axioms, 20 theorems, 0 sorry.**
+- a typed witness reconstructs exactly one root,
+- `verifyPath` returns `true` iff that reconstructed root equals the stored root,
+- `verifyPackedPath` returns `true` iff the packed input is canonical, decodes to a typed witness, and that typed witness is accepted by the same root-equality rule,
+- both verification entrypoints are read-only.
 
-The 3 axioms are irreducible keccak256 cryptographic assumptions (`th_collision_resistant`, `th_domain_separated`, `thPair_collision_resistant`). Everything else is machine-checked by Lean 4.
+Malformed packed encodings fail in one simple, explicit way: any direction word with non-zero bits above the low 4 bits is rejected.
 
-## Structure
+This kernel does not prove full SPHINCS cryptography or the production C6 verifier. It proves the on-chain Merkle acceptance boundary.
 
-```
-verity/
-├── SphincsC6/                ← Pure Lean functional model
-│   ├── Types.lean            ← Parameters, ADRS, signature types
-│   ├── Hash.lean             ← Keccak primitives + 3 crypto axioms
-│   ├── WotsC.lean            ← WOTS+C w=16: digit extraction, chain verify, PK compress
-│   ├── ForsC.lean            ← FORS+C: forced-zero, tree verify, root compress
-│   ├── Hypertree.lean        ← D=2 layers: Merkle auth path, layer composition
-│   ├── Contract.lean         ← Full verify function + proven security properties
-│   ├── Spec.lean             ← Parameter consistency specs
-│   └── Proofs/
-│       └── Correctness.lean  ← 14 theorems: binding, roundtrip, soundness
-│
-├── SphincsC6Full/            ← Manual CompilationModel (Verity EDSL, no oracle)
-│   ├── Contract.lean         ← Full verification in Stmt/Expr DSL
-│   ├── Spec.lean             ← Function specs (verify_spec, getPkSeed_spec)
-│   ├── Invariants.lean       ← State immutability, key preservation
-│   └── Proofs/
-│       └── Basic.lean        ← Spec satisfaction proofs
-│
-├── SphincsC6V/               ← verity_contract macro (full Layer 1 proofs)
-│   └── SphincsC6V.lean       ← Memory-as-state pattern for forEach loops
-│
-├── artifacts/                ← Verity-compiled Yul
-│   ├── SphincsC6Full.yul     ← From manual CompilationModel
-│   └── SphincsC6V.yul        ← From verity_contract macro
-│
-└── external-libs/
-    └── SphincsC6Verify.yul   ← Linked oracle (used by SphincsC6Full only)
-```
+## Proof Boundary
 
-## Three Verification Tiers
+The verified artifact is [`SphincsKernel/`](./SphincsKernel/).
 
-| Tier | Source | Formal guarantee | Gas (EOA) |
-|---|---|---|---|
-| Hand-optimized ASM | `src/SPHINCs-C6Asm.sol` | Differential testing | 234K |
-| Manual CompilationModel | `SphincsC6Full/` | Verity Layer 2-3 | 255K |
-| **`verity_contract` macro** | **`SphincsC6V/`** | **Verity Layer 1-2-3** | **283K** |
+It stores one expected root and exposes two read-only acceptance APIs:
 
-## Proven Properties
+- `verifyPath`: takes a fully decoded witness with 4 explicit direction booleans.
+- `verifyPackedPath`: takes the same witness with the directions packed into the low 4 bits of one word, and rejects non-canonical encodings.
 
-| Theorem | What it proves |
-|---|---|
-| `wots_chain_roundtrip` | sign(sk, digit) then verify(σ, digit) = pk |
-| `chain_binding` | WOTS chain injective (induction on steps via CR) |
-| `merkle_node_binding` | ThPair same output → same (left, right) |
-| `merkle_level_binding` | Auth path level binding (handles left/right ordering) |
-| `leaf_binding` | Th injective (leaf preimage commitment) |
-| `fors_leaf_binding` | FORS leaf secret binding |
-| `wots_c_digit_sum` | Valid sig → digit sum = 240 |
-| `fors_c_forced_zero` | Valid sig → last FORS index = 0 |
-| `verify_soundness` | verify=true → computed root = pkRoot |
-| `param_consistency` | SIG_SIZE=3352, H=D×SUBTREE_H, K×A=128 |
+Exact on-chain guarantee:
 
-## Build
+- `previewPath` and `previewPackedPath` reconstruct exactly the root defined by the Lean model.
+- `verifyPath` returns `true` if and only if the reconstructed root equals the stored root.
+- `verifyPackedPath` returns `true` if and only if the packed input is canonical and the decoded witness is accepted by the same typed acceptance rule.
+- Both verification entrypoints preserve storage.
+- "Read-only" here is a semantic guarantee proved against the deployed contract behavior; this branch does not make a separate ABI-mutability claim.
+- The contract is compiled with `--deny-local-obligations` and `--deny-axiomatized-primitives`.
+
+Outside the proof boundary:
+
+- the toy `compress` function is not claimed to be cryptographically secure,
+- the full `SphincsC6/` verifier is not claimed here,
+- witness derivation, signature parsing, and integration logic live outside this verified kernel.
+
+What is proved:
+
+- Lean proves the acceptance rule.
+- Lean also proves the packed/decode boundary: malformed encodings are rejected, and canonical encodings are accepted exactly when their decoded typed witness is accepted.
+- Verity proves the compiled EVM contract implements that rule.
+
+## File map
+
+- `SphincsKernel/Model.lean`: typed witness model, packed witness decoding, and acceptance rule.
+- `SphincsKernel/MerkleKernel.lean`: Verity contract for the on-chain entrypoints.
+- `SphincsKernel/Spec.lean`: exact function-level specs.
+- `SphincsKernel/Proofs/Correctness.lean`: user-facing theorems such as typed-witness acceptance and packed-decoding acceptance.
+- `SphincsKernel/Examples.lean`: named examples for a concrete witness.
+
+## Main properties
+
+The core statements are:
+
+- A witness is accepted exactly when it reconstructs the configured root.
+- A packed witness is accepted exactly when its encoding is canonical and its decoded witness is accepted by the typed rule.
+- Verification is read-only.
+- If you configure the contract with the root reconstructed from a witness, that witness will verify.
+
+Implementation shape:
+
+- The contract now factors the kernel through a tiny internal helper chain: one Merkle step helper, one direction-bit decoder, and one root-reconstruction helper.
+- The public entrypoints are just read-only wrappers around that shared contract-local kernel plus the explicit canonical-encoding check for packed witnesses.
+- The shared Lean semantic core remains the proof reference: the specs and correctness theorems tie the deployed entrypoints back to the same typed witness model exactly.
+
+That gives a small, inspectable, replayable kernel with one sharp claim instead of a broader but blurrier SPHINCS story.
+
+## Build and strict checks
 
 ```bash
-# Standalone Lean model (no Verity framework needed)
-cd verity && lake build
+cd verity
+lake update
+lake build
 
-# With Verity framework (for compilation to Yul)
-git clone https://github.com/Th0rgal/verity.git verity-framework
-cd verity-framework && lake update
-# Copy contracts and compile:
-lake exe verity-compiler --module Contracts.SphincsC6V.SphincsC6V -o artifacts/yul
+# Strict Verity compilation of the recommended kernel
+lake exe verity-compiler \
+  --module SphincsKernel.MerkleKernel \
+  --deny-local-obligations \
+  --deny-axiomatized-primitives \
+  --output artifacts/sphincs-kernel
 ```
 
-## References
+## EVM replay tests
 
-- [ePrint 2025/2203](https://eprint.iacr.org/2025/2203) — Blockstream SPHINCS+ (WOTS+C, FORS+C security proofs)
-- [SPHINCS+ R3.1 Spec](https://sphincs.org/data/sphincs+-r3.1-specification.pdf) — Hash function assumptions (§3), Merkle binding (§6)
-- [Verity](https://github.com/Th0rgal/verity) — Lean 4 → EVM formally verified smart contracts
+The Yul artifact is not just generated; it is exercised directly in Foundry.
+
+```bash
+# From the repo root
+forge test --match-contract MerkleKernelVerityTest -vv
+```
+
+That test:
+
+- recompiles `verity/artifacts/sphincs-kernel/MerkleKernel.yul` into deployable bytecode,
+- deploys the raw Verity artifact,
+- checks named example vectors for both explicit and packed witnesses,
+- fuzzes `previewPath` against a tiny Solidity reference model,
+- fuzzes `previewPackedPath` against a reference packed-decoding model,
+- fuzzes `verifyPath` to show acceptance iff `candidateRoot == storedRoot`,
+- fuzzes `verifyPackedPath` to show acceptance iff the packed input is canonical and the decoded witness is accepted by the typed rule,
+- checks that verification preserves storage.
+
+## Why this is useful for SPHINCS-
+
+For a real SPHINCS deployment, this suggests the better split:
+
+1. Parse and derive a typed witness outside the verified core.
+2. Keep the heavy cryptographic logic as a reference model and test oracle.
+3. Hand only the Merkle acceptance step to the verified kernel.
+4. State guarantees exactly at that boundary, not beyond it.
+
+That gives users something they can actually reason about: what exact witness shape is accepted on-chain, and what exact property the contract enforces.
