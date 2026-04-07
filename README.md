@@ -170,7 +170,37 @@ The `verity_contract` macro version gets full Layer 1-2-3 compilation correctnes
 
 ### Verified Merkle Kernel
 
-The repo also includes a small formally checked Merkle acceptance kernel in [`verity/SphincsKernel/`](verity/SphincsKernel/). It proves that `verifyPath` accepts exactly the typed witnesses whose reconstructed root matches the stored root, and `verifyPackedPath` accepts exactly the canonical packed encodings. See [`verity/README.md`](verity/README.md) for details.
+This repo includes a very small formally checked artifact in [`verity/SphincsKernel/`](verity/SphincsKernel/):
+
+- a Merkle acceptance kernel for SPHINCS-style witnesses,
+- with the public claim that `verifyPath` accepts exactly the typed witnesses whose reconstructed root matches the stored root,
+- and `verifyPackedPath` accepts exactly the canonical packed encodings whose decoded typed witness is accepted by that same rule,
+- with read-only verification,
+- and with malformed packed encodings rejected explicitly when direction bits outside the low 4 bits are set.
+
+The verified core is intentionally smaller than a full SPHINCS verifier. Parsing, witness derivation, and full cryptographic verification stay outside that proof boundary unless they can be specified just as cleanly.
+
+Why that is still useful:
+
+- a real verifier can derive or decode a typed witness off-chain or in unverified code,
+- pass that witness to the kernel,
+- and rely on a machine-checked guarantee about the exact on-chain acceptance rule.
+
+What is not claimed:
+
+- this is not a proof of full SPHINCS cryptographic security,
+- this is not an end-to-end proof of the entire production C6 verifier,
+- the kernel's `compress` function is a small stand-in, not a real SPHINCS hash primitive,
+- parsing, witness derivation, and protocol integration are outside the verified kernel.
+
+The repo also includes a direct EVM replay test for the kernel:
+
+- it recompiles `verity/artifacts/sphincs-kernel/MerkleKernel.yul`,
+- deploys that bytecode in Foundry,
+- checks named vectors,
+- fuzzes both explicit and packed witness entrypoints against a Solidity reference model.
+
+See [`verity/README.md`](verity/README.md) for the exact specs, theorem shape, strict build commands, and trust boundary.
 
 ## References
 
