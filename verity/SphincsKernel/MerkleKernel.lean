@@ -11,6 +11,24 @@ verity_contract MerkleKernel where
   storage
     pkRoot : Uint256 := slot 0
 
+  function stepNode (acc : Uint256) (sibling : Uint256) (siblingOnLeft : Bool) : Uint256 := do
+    if siblingOnLeft then
+      return add (mul sibling 65537) (add (mul acc 257) 97)
+    else
+      return add (mul acc 65537) (add (mul sibling 257) 97)
+
+  function decodeDirectionBit (directions : Uint256) (bitIndex : Uint256) : Bool := do
+    return bitAnd (shr bitIndex directions) 1 != 0
+
+  function reconstructRoot
+      (leaf : Uint256, sibling0 : Uint256, sibling1 : Uint256, sibling2 : Uint256, sibling3 : Uint256,
+        sibling0OnLeft : Bool, sibling1OnLeft : Bool, sibling2OnLeft : Bool, sibling3OnLeft : Bool) :
+      Uint256 := do
+    let level0 ← stepNode leaf sibling0 sibling0OnLeft
+    let level1 ← stepNode level0 sibling1 sibling1OnLeft
+    let level2 ← stepNode level1 sibling2 sibling2OnLeft
+    stepNode level2 sibling3 sibling3OnLeft
+
   function configureRoot (newRoot : Uint256) : Unit := do
     setStorage pkRoot newRoot
 
@@ -22,83 +40,27 @@ verity_contract MerkleKernel where
       (leaf : Uint256, sibling0 : Uint256, sibling1 : Uint256, sibling2 : Uint256, sibling3 : Uint256,
         sibling0OnLeft : Bool, sibling1OnLeft : Bool, sibling2OnLeft : Bool, sibling3OnLeft : Bool) :
       Uint256 := do
-    let mut level0 := 0
-    if sibling0OnLeft then
-      level0 := add (mul sibling0 65537) (add (mul leaf 257) 97)
-    else
-      level0 := add (mul leaf 65537) (add (mul sibling0 257) 97)
-    let mut level1 := 0
-    if sibling1OnLeft then
-      level1 := add (mul sibling1 65537) (add (mul level0 257) 97)
-    else
-      level1 := add (mul level0 65537) (add (mul sibling1 257) 97)
-    let mut level2 := 0
-    if sibling2OnLeft then
-      level2 := add (mul sibling2 65537) (add (mul level1 257) 97)
-    else
-      level2 := add (mul level1 65537) (add (mul sibling2 257) 97)
-    let mut level3 := 0
-    if sibling3OnLeft then
-      level3 := add (mul sibling3 65537) (add (mul level2 257) 97)
-    else
-      level3 := add (mul level2 65537) (add (mul sibling3 257) 97)
-    return level3
+    reconstructRoot leaf sibling0 sibling1 sibling2 sibling3
+      sibling0OnLeft sibling1OnLeft sibling2OnLeft sibling3OnLeft
 
   function previewPackedPath
       (leaf : Uint256, sibling0 : Uint256, sibling1 : Uint256, sibling2 : Uint256, sibling3 : Uint256,
         directions : Uint256) :
       Uint256 := do
-    let sibling0OnLeft := bitAnd directions 1 != 0
-    let sibling1OnLeft := bitAnd (shr 1 directions) 1 != 0
-    let sibling2OnLeft := bitAnd (shr 2 directions) 1 != 0
-    let sibling3OnLeft := bitAnd (shr 3 directions) 1 != 0
-    let mut level0 := 0
-    if sibling0OnLeft then
-      level0 := add (mul sibling0 65537) (add (mul leaf 257) 97)
-    else
-      level0 := add (mul leaf 65537) (add (mul sibling0 257) 97)
-    let mut level1 := 0
-    if sibling1OnLeft then
-      level1 := add (mul sibling1 65537) (add (mul level0 257) 97)
-    else
-      level1 := add (mul level0 65537) (add (mul sibling1 257) 97)
-    let mut level2 := 0
-    if sibling2OnLeft then
-      level2 := add (mul sibling2 65537) (add (mul level1 257) 97)
-    else
-      level2 := add (mul level1 65537) (add (mul sibling2 257) 97)
-    let mut level3 := 0
-    if sibling3OnLeft then
-      level3 := add (mul sibling3 65537) (add (mul level2 257) 97)
-    else
-      level3 := add (mul level2 65537) (add (mul sibling3 257) 97)
-    return level3
+    let sibling0OnLeft ← decodeDirectionBit directions 0
+    let sibling1OnLeft ← decodeDirectionBit directions 1
+    let sibling2OnLeft ← decodeDirectionBit directions 2
+    let sibling3OnLeft ← decodeDirectionBit directions 3
+    reconstructRoot leaf sibling0 sibling1 sibling2 sibling3
+      sibling0OnLeft sibling1OnLeft sibling2OnLeft sibling3OnLeft
 
   function verifyPath
       (leaf : Uint256, sibling0 : Uint256, sibling1 : Uint256, sibling2 : Uint256, sibling3 : Uint256,
         sibling0OnLeft : Bool, sibling1OnLeft : Bool, sibling2OnLeft : Bool, sibling3OnLeft : Bool) :
       Bool := do
     let stored ← getStorage pkRoot
-    let mut level0 := 0
-    if sibling0OnLeft then
-      level0 := add (mul sibling0 65537) (add (mul leaf 257) 97)
-    else
-      level0 := add (mul leaf 65537) (add (mul sibling0 257) 97)
-    let mut level1 := 0
-    if sibling1OnLeft then
-      level1 := add (mul sibling1 65537) (add (mul level0 257) 97)
-    else
-      level1 := add (mul level0 65537) (add (mul sibling1 257) 97)
-    let mut level2 := 0
-    if sibling2OnLeft then
-      level2 := add (mul sibling2 65537) (add (mul level1 257) 97)
-    else
-      level2 := add (mul level1 65537) (add (mul sibling2 257) 97)
-    let mut candidate := 0
-    if sibling3OnLeft then
-      candidate := add (mul sibling3 65537) (add (mul level2 257) 97)
-    else
-      candidate := add (mul level2 65537) (add (mul sibling3 257) 97)
+    let candidate ← reconstructRoot leaf sibling0 sibling1 sibling2 sibling3
+      sibling0OnLeft sibling1OnLeft sibling2OnLeft sibling3OnLeft
     return (candidate == stored)
 
   function verifyPackedPath
@@ -108,30 +70,10 @@ verity_contract MerkleKernel where
     let stored ← getStorage pkRoot
     -- Only canonical packed witnesses are accepted; high bits are an explicit decode failure.
     let canonical := shr 4 directions == 0
-    let sibling0OnLeft := bitAnd directions 1 != 0
-    let sibling1OnLeft := bitAnd (shr 1 directions) 1 != 0
-    let sibling2OnLeft := bitAnd (shr 2 directions) 1 != 0
-    let sibling3OnLeft := bitAnd (shr 3 directions) 1 != 0
-    let mut level0 := 0
-    if sibling0OnLeft then
-      level0 := add (mul sibling0 65537) (add (mul leaf 257) 97)
+    let candidate ← previewPackedPath leaf sibling0 sibling1 sibling2 sibling3 directions
+    if canonical then
+      return candidate == stored
     else
-      level0 := add (mul leaf 65537) (add (mul sibling0 257) 97)
-    let mut level1 := 0
-    if sibling1OnLeft then
-      level1 := add (mul sibling1 65537) (add (mul level0 257) 97)
-    else
-      level1 := add (mul level0 65537) (add (mul sibling1 257) 97)
-    let mut level2 := 0
-    if sibling2OnLeft then
-      level2 := add (mul sibling2 65537) (add (mul level1 257) 97)
-    else
-      level2 := add (mul level1 65537) (add (mul sibling2 257) 97)
-    let mut candidate := 0
-    if sibling3OnLeft then
-      candidate := add (mul sibling3 65537) (add (mul level2 257) 97)
-    else
-      candidate := add (mul level2 65537) (add (mul sibling3 257) 97)
-    return (mul (boolToWord canonical) (boolToWord (candidate == stored)) != 0)
+      return false
 
 end SphincsKernel

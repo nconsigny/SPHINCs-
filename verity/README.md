@@ -28,6 +28,7 @@ Exact on-chain guarantee:
 - `verifyPath` returns `true` if and only if the reconstructed root equals the stored root.
 - `verifyPackedPath` returns `true` if and only if the packed input is canonical and the decoded witness is accepted by the same typed acceptance rule.
 - Both verification entrypoints preserve storage.
+- "Read-only" here is a semantic guarantee proved against the deployed contract behavior; this branch does not make a separate ABI-mutability claim.
 - The contract is compiled with `--deny-local-obligations` and `--deny-axiomatized-primitives`.
 
 Outside the proof boundary:
@@ -59,10 +60,11 @@ The core statements are:
 - Verification is read-only.
 - If you configure the contract with the root reconstructed from a witness, that witness will verify.
 
-Current macro boundary:
+Implementation shape:
 
-- `verity_contract` still requires the contract body to inline the acceptance logic today.
-- The shared Lean semantic core remains the proof reference: the specs and correctness theorems tie the deployed entrypoints back to that model exactly.
+- The contract now factors the kernel through a tiny internal helper chain: one Merkle step helper, one direction-bit decoder, and one root-reconstruction helper.
+- The public entrypoints are just read-only wrappers around that shared contract-local kernel plus the explicit canonical-encoding check for packed witnesses.
+- The shared Lean semantic core remains the proof reference: the specs and correctness theorems tie the deployed entrypoints back to the same typed witness model exactly.
 
 That gives a small, inspectable, replayable kernel with one sharp claim instead of a broader but blurrier SPHINCS story.
 
