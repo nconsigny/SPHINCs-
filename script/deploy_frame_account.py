@@ -34,6 +34,30 @@ def build_frame_account_bytecode(shared_verifier_addr: str, pk_seed: bytes, pk_r
     receive_patch = len(code) - 1
     code += bytes([0x57])  # JUMPI
 
+    # Verify pkSeed matches storage slot 0
+    # calldata[4:36] must equal sload(0)
+    code += bytes([0x60, 0x04])  # PUSH1 4
+    code += bytes([0x35])  # CALLDATALOAD(4) — pkSeed from calldata
+    code += bytes([0x5f])  # PUSH0
+    code += bytes([0x54])  # SLOAD(0) — pkSeed from storage
+    code += bytes([0x14])  # EQ
+    code += bytes([0x15])  # ISZERO
+    code += bytes([0x60, 0x00])  # PUSH1 <revert> (patched)
+    seed_check_patch = len(code) - 1
+    code += bytes([0x57])  # JUMPI — revert if mismatch
+
+    # Verify pkRoot matches storage slot 1
+    # calldata[36:68] must equal sload(1)
+    code += bytes([0x60, 0x24])  # PUSH1 36
+    code += bytes([0x35])  # CALLDATALOAD(36) — pkRoot from calldata
+    code += bytes([0x60, 0x01])  # PUSH1 1
+    code += bytes([0x54])  # SLOAD(1) — pkRoot from storage
+    code += bytes([0x14])  # EQ
+    code += bytes([0x15])  # ISZERO
+    code += bytes([0x60, 0x00])  # PUSH1 <revert> (patched)
+    root_check_patch = len(code) - 1
+    code += bytes([0x57])  # JUMPI — revert if mismatch
+
     # Forward entire calldata to shared verifier via STATICCALL
     code += bytes([0x36])  # CALLDATASIZE
     code += bytes([0x5f])  # PUSH0 (destOffset)
@@ -74,8 +98,10 @@ def build_frame_account_bytecode(shared_verifier_addr: str, pk_seed: bytes, pk_r
     receive_target = len(code)
     code += bytes([0x5b, 0x00])
 
-    # Patch
+    # Patch all jump targets
     code[receive_patch] = receive_target
+    code[seed_check_patch] = revert_target
+    code[root_check_patch] = revert_target
     code[revert_patch] = revert_target
     code[revert_patch2] = revert_target
 
