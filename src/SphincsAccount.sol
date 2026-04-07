@@ -5,11 +5,9 @@ import "account-abstraction/core/BaseAccount.sol";
 import "account-abstraction/core/Helpers.sol";
 import "account-abstraction/interfaces/IEntryPoint.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {ISigVerifier} from "./ISigVerifier.sol";
 
 /// @title SphincsAccount - Hybrid ECDSA + SPHINCS+ account using a SHARED verifier
 /// @notice The account stores pkSeed/pkRoot and passes them to a shared stateless verifier.
-///         Uses ISigVerifier interface (ZKnox/Kohaku compatible).
 ///         The shared verifier is deployed once and used by all accounts.
 ///         Follows the ZKnox/Kohaku pattern (ISigVerifier with keys as arguments).
 contract SphincsAccount is BaseAccount {
@@ -64,16 +62,18 @@ contract SphincsAccount is BaseAccount {
             return SIG_VALIDATION_FAILED;
         }
 
-        // 2. Verify SPHINCS+ via shared verifier (ISigVerifier interface)
-        bytes memory key = abi.encodePacked(pkSeed, pkRoot);
+        // 2. Verify SPHINCS+ via shared verifier (keys passed as arguments)
         (bool success, bytes memory result) = verifier.staticcall(
-            abi.encodeWithSelector(ISigVerifier.verify.selector, key, userOpHash, sphincsSig)
+            abi.encodeWithSignature(
+                "verify(bytes32,bytes32,bytes32,bytes)",
+                pkSeed, pkRoot, userOpHash, sphincsSig
+            )
         );
-        if (!success || result.length < 4) {
+        if (!success || result.length < 32) {
             return SIG_VALIDATION_FAILED;
         }
-        bytes4 magicValue = abi.decode(result, (bytes4));
-        if (magicValue != ISigVerifier.verify.selector) {
+        bool valid = abi.decode(result, (bool));
+        if (!valid) {
             return SIG_VALIDATION_FAILED;
         }
 

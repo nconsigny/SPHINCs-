@@ -1,57 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ISigVerifier} from "./ISigVerifier.sol";
-
 /// @title SphincsC6Asm — Stateless SPHINCS+ C6 verifier (shared, Yul-optimized)
-/// @notice Deployed once, used by all accounts. Implements ISigVerifier (ZKnox/Kohaku).
-///         Key format: key = abi.encodePacked(pkSeed[32], pkRoot[32]) = 64 bytes.
+/// @notice Deployed once, used by all accounts. No storage — pure function.
+///         Public keys are passed by the caller (the account contract).
+///         Follows the ZKnox/Kohaku shared verifier pattern.
 /// @dev C6: h=24, d=2, a=16, k=8, w=16, l=32, target_sum=240, sig_size=3352
 ///      Domain-separated H_msg (160 bytes).
-contract SphincsC6Asm is ISigVerifier {
+contract SphincsC6Asm {
 
-    /// @notice No-op key registration. SPHINCS+ keys are immutable per account.
-    function setKey(bytes calldata key) external pure returns (bytes memory) {
-        return key;
-    }
-
-    /// @notice Verify a SPHINCS+ C6 signature (ISigVerifier interface)
-    /// @param key abi.encodePacked(pkSeed[32], pkRoot[32]) = 64 bytes
-    /// @param hash The signed message hash
-    /// @param signature The SPHINCS+ signature (3352 bytes)
-    /// @return magicValue ISigVerifier.verify.selector if valid, 0xffffffff otherwise
-    function verify(bytes calldata key, bytes32 hash, bytes calldata signature)
-        external returns (bytes4)
-    {
-        require(key.length == 64, "key must be 64 bytes (pkSeed || pkRoot)");
-        // Unpack key and call verifyDirect via staticcall (because assembly return)
-        bool valid;
-        assembly {
-            let m := mload(0x40)
-            // selector for verifyDirect(bytes32,bytes32,bytes32,bytes) = 0x423f75f1
-            mstore(m, 0x423f75f100000000000000000000000000000000000000000000000000000000)
-            // pkSeed from key[0:32]
-            calldatacopy(add(m, 4), key.offset, 32)
-            // pkRoot from key[32:64]
-            calldatacopy(add(m, 36), add(key.offset, 32), 32)
-            // hash
-            mstore(add(m, 68), hash)
-            // bytes sig: offset = 128 (4 words after fixed params)
-            mstore(add(m, 100), 128)
-            // copy sig length + data
-            let sigDataLen := add(32, signature.length)
-            calldatacopy(add(m, 132), sub(signature.offset, 32), sigDataLen)
-
-            let totalLen := add(132, sigDataLen)
-            let ok := staticcall(gas(), address(), m, totalLen, m, 32)
-            valid := and(ok, mload(m))
-        }
-        return valid ? ISigVerifier.verify.selector : bytes4(0xffffffff);
-    }
-
-    /// @notice Direct verify (for callers that already have separate pkSeed/pkRoot)
-    /// @dev Uses assembly return for gas efficiency when called externally.
-    function verifyDirect(bytes32 pkSeed, bytes32 pkRoot, bytes32 message, bytes calldata sig)
+    /// @notice Verify a SPHINCS+ C6 signature
+    /// @param pkSeed The signer's public seed (128-bit, left-aligned)
+    /// @param pkRoot The signer's Merkle root (128-bit, left-aligned)
+    /// @param message The signed message hash
+    /// @param sig The SPHINCS+ signature (3352 bytes)
+    /// @return valid True if signature is valid for the given keys
+    function verify(bytes32 pkSeed, bytes32 pkRoot, bytes32 message, bytes calldata sig)
         external pure returns (bool valid)
     {
         assembly ("memory-safe") {
