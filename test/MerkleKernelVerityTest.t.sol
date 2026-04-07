@@ -222,6 +222,35 @@ contract MerkleKernelVerityTest is Test {
         assertEq(kernel.currentRoot(), acceptedRoot, "verifyPackedPath must preserve state");
     }
 
+    function test_verifyPackedPath_rejectsNonCanonicalDirections() public {
+        IMerkleKernel kernel = _deployKernel();
+        uint256 lowNibble = 10;
+        uint256 noisyDirections = lowNibble | (uint256(1) << 200);
+        uint256 acceptedRoot = _previewReferencePacked(
+            SAMPLE_LEAF,
+            SAMPLE_SIBLING0,
+            SAMPLE_SIBLING1,
+            SAMPLE_SIBLING2,
+            SAMPLE_SIBLING3,
+            lowNibble
+        );
+
+        kernel.configureRoot(acceptedRoot);
+
+        assertFalse(
+            kernel.verifyPackedPath(
+                SAMPLE_LEAF,
+                SAMPLE_SIBLING0,
+                SAMPLE_SIBLING1,
+                SAMPLE_SIBLING2,
+                SAMPLE_SIBLING3,
+                noisyDirections
+            ),
+            "verifyPackedPath should reject non-canonical packed directions"
+        );
+        assertEq(kernel.currentRoot(), acceptedRoot, "rejected packed verification must preserve state");
+    }
+
     function test_previewPackedPath_ignoresHighDirectionBits() public {
         IMerkleKernel kernel = _deployKernel();
         uint256 lowNibble = 10;
@@ -379,7 +408,11 @@ contract MerkleKernelVerityTest is Test {
 
         bool got = kernel.verifyPackedPath(leaf, sibling0, sibling1, sibling2, sibling3, directions);
 
-        assertEq(got, candidate == root, "verifyPackedPath should accept exactly matching decoded roots");
+        assertEq(
+            got,
+            _packedDirectionsCanonical(directions) && candidate == root,
+            "verifyPackedPath should accept only canonical packed witnesses with matching roots"
+        );
         assertEq(kernel.currentRoot(), root, "verifyPackedPath must not mutate the configured root");
     }
 
@@ -439,6 +472,10 @@ contract MerkleKernelVerityTest is Test {
 
     function _directionBit(uint256 directions, uint256 index) internal pure returns (bool) {
         return ((directions >> index) & 1) != 0;
+    }
+
+    function _packedDirectionsCanonical(uint256 directions) internal pure returns (bool) {
+        return (directions >> 4) == 0;
     }
 
     function _step(uint256 acc, uint256 sibling, bool siblingOnLeft) internal pure returns (uint256) {

@@ -52,7 +52,8 @@ theorem previewPackedPath_returns_model
     (s : ContractState) :
     let result := ((previewPackedPath leaf sibling0 sibling1 sibling2 sibling3 directions).run s).fst
     previewPackedPath_spec result leaf sibling0 sibling1 sibling2 sibling3 directions := by
-  simp [previewPackedPath_spec, previewPackedPath]
+  simp [previewPackedPath_spec, previewPackedPath, previewPath, previewPackedPathModel, previewPathModel,
+    step, compress, Contract.run, Verity.bind, Bind.bind]
 
 theorem previewPackedPath_preserves_state
     (leaf sibling0 sibling1 sibling2 sibling3 directions : Uint256)
@@ -79,6 +80,13 @@ theorem verifyPackedPath_meets_spec
     let outcome := (verifyPackedPath leaf sibling0 sibling1 sibling2 sibling3 directions).run s
     verifyPackedPath_spec outcome.fst s outcome.snd leaf sibling0 sibling1 sibling2 sibling3
       directions := by
-  simp [Contract.run, Verity.bind, Bind.bind, verifyPackedPath_spec, verifyPackedPath]
+  by_cases hCanonical : shr 4 directions == 0
+  · simp [Contract.run, Verity.bind, Bind.bind, verifyPackedPath_spec, verifyPackedPath,
+      verifyPackedPathModel, previewPackedPath, previewPath, previewPathModel, previewPackedPathModel,
+      verifyWitnessModel, packedDirectionsCanonical, hCanonical, step, compress]
+  · have hNonCanonical : shr 4 directions != 0 := by
+      simp [hCanonical]
+    simp [Contract.run, Verity.bind, Bind.bind, verifyPackedPath_spec, verifyPackedPath,
+      verifyPackedPathModel, packedDirectionsCanonical, hNonCanonical, hCanonical]
 
 end SphincsKernel.Proofs

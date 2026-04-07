@@ -35,8 +35,9 @@ example :
 example :
     verifyPackedPathModel acceptedRoot sampleLeaf sampleSibling0 sampleSibling1 sampleSibling2 sampleSibling3
       sampleDirections = true := by
-  simp [acceptedRoot, verifyPackedPathModel, sampleDirections, verifyWitnessModel, sampleWitness,
-    decodePackedWitness, mkPackedWitness, decodeDirectionBit, Contracts.bitAnd, beq_iff_eq]
+  simp [acceptedRoot, verifyPackedPathModel, packedDirectionsCanonical, sampleDirections,
+    verifyWitnessModel, sampleWitness, decodePackedWitness, mkPackedWitness, decodeDirectionBit,
+    Contracts.bitAnd, beq_iff_eq]
 
 example :
     verifyPathModel (add acceptedRoot 1) sampleLeaf sampleSibling0 sampleSibling1 sampleSibling2 sampleSibling3
@@ -79,8 +80,16 @@ example :
       sampleDirections).run configuredState =
       ContractResult.success true configuredState := by
   simp [configuredState, acceptedRoot, verifyPackedPath, configureRoot, verifyPackedPathModel,
-    sampleDirections, pkRoot, decodePackedWitness, mkPackedWitness, decodeDirectionBit,
-    Contracts.bitAnd, Contract.run]
+    packedDirectionsCanonical, sampleDirections, pkRoot, decodePackedWitness, mkPackedWitness,
+    decodeDirectionBit, Contracts.bitAnd, Contract.run, previewPackedPath, previewPath,
+    previewPackedPathModel, previewPathModel, step, compress]
+
+example :
+    (verifyPackedPath sampleLeaf sampleSibling0 sampleSibling1 sampleSibling2 sampleSibling3
+      (sampleDirections + (shl 200 1))).run configuredState =
+      ContractResult.success false configuredState := by
+  simp [configuredState, acceptedRoot, verifyPackedPath, packedDirectionsCanonical, sampleDirections,
+    Contract.run]
 
 example :
     (verifyPath sampleLeaf sampleSibling0 sampleSibling1 sampleSibling2 sampleSibling3

@@ -1,33 +1,45 @@
-# Verity Kernel for SPHINCS-
+# Formally Checked Merkle Acceptance Kernel
 
-This directory contains a small Verity-compiled acceptance kernel for SPHINCS-style Merkle witnesses.
+This directory contains a small Verity artifact for SPHINCS-style witnesses.
 
-It proves that the deployed EVM bytecode accepts exactly the witnesses accepted by the Lean model.
+The public claim is narrow and strong:
 
-It does not prove SPHINCS cryptographic security, nor the full production C6 verifier.
+- a typed witness reconstructs exactly one root,
+- `verifyPath` returns `true` iff that reconstructed root equals the stored root,
+- `verifyPackedPath` returns `true` iff the packed input is canonical, decodes to that typed witness, and the reconstructed root equals the stored root,
+- both verification entrypoints are read-only.
 
-## What users should know
+Malformed packed encodings fail in one simple, explicit way: any direction word with non-zero bits above the low 4 bits is rejected.
+
+This kernel does not prove full SPHINCS cryptography or the production C6 verifier. It proves the on-chain Merkle acceptance boundary.
+
+## Proof Boundary
 
 The verified artifact is [`SphincsKernel/`](./SphincsKernel/).
 
 It stores one expected root and exposes two read-only acceptance APIs:
 
 - `verifyPath`: takes a fully decoded witness with 4 explicit direction booleans.
-- `verifyPackedPath`: takes the same witness with the directions packed into the low 4 bits of one word.
+- `verifyPackedPath`: takes the same witness with the directions packed into the low 4 bits of one word, and rejects non-canonical encodings.
 
-The headline guarantees are simple:
+Exact on-chain guarantee:
 
 - `previewPath` and `previewPackedPath` reconstruct exactly the root defined by the Lean model.
 - `verifyPath` returns `true` if and only if the reconstructed root equals the stored root.
-- `verifyPackedPath` returns `true` if and only if the decoded packed witness reconstructs the stored root.
+- `verifyPackedPath` returns `true` if and only if the packed input is canonical and the decoded witness reconstructs the stored root.
 - Both verification entrypoints preserve storage.
 - The contract is compiled with `--deny-local-obligations` and `--deny-axiomatized-primitives`.
 
-For users evaluating the trust boundary, the important point is this:
+Outside the proof boundary:
+
+- the toy `compress` function is not claimed to be cryptographically secure,
+- the full `SphincsC6/` verifier is not claimed here,
+- witness derivation, signature parsing, and integration logic live outside this verified kernel.
+
+What is proved:
 
 - Lean proves the acceptance rule.
 - Verity proves the compiled EVM contract implements that rule.
-- This kernel does not claim that the toy `compress` function is cryptographically secure.
 
 ## File map
 
@@ -42,19 +54,11 @@ For users evaluating the trust boundary, the important point is this:
 The core statements are:
 
 - A witness is accepted exactly when it reconstructs the configured root.
-- A packed witness is accepted exactly when its decoded witness reconstructs the configured root.
+- A packed witness is accepted exactly when its encoding is canonical and its decoded witness reconstructs the configured root.
 - Verification is read-only.
 - If you configure the contract with the root reconstructed from a witness, that witness will verify.
 
-That is the right scale of claim for Verity today: small, inspectable, replayable, and strong.
-
-## What is not proved
-
-- The full `SphincsC6/` verifier is not claimed here as an end-to-end Verity proof.
-- The arithmetic `compress` function is a stand-in for a hash compression primitive.
-- The repo does not claim post-quantum security from this kernel alone.
-
-What this kernel buys you is a clean verified boundary for on-chain acceptance logic.
+That gives a small, inspectable, replayable kernel with one sharp claim instead of a broader but blurrier SPHINCS story.
 
 ## Build and strict checks
 
@@ -95,9 +99,9 @@ That test:
 
 For a real SPHINCS deployment, this suggests the better split:
 
-1. Keep the heavy cryptographic logic as a pure reference model and test oracle.
-2. Encode the on-chain acceptance boundary as a small typed witness.
-3. Verify that boundary end-to-end with Verity.
-4. State the guarantees at that boundary, not beyond it.
+1. Parse and derive a typed witness outside the verified core.
+2. Keep the heavy cryptographic logic as a reference model and test oracle.
+3. Hand only the Merkle acceptance step to the verified kernel.
+4. State guarantees exactly at that boundary, not beyond it.
 
 That gives users something they can actually reason about: what exact witness shape is accepted on-chain, and what exact property the contract enforces.

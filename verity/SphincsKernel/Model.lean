@@ -69,6 +69,14 @@ def decodePackedWitness (packed : PackedMerkleWitness) : MerkleWitness :=
     sibling2OnLeft := decodeDirectionBit packed.directions 2
     sibling3OnLeft := decodeDirectionBit packed.directions 3 }
 
+/--
+Canonical packed witnesses use only the low 4 bits for directions.
+Higher bits are malformed encoding noise: they may still decode to a typed witness,
+but the acceptance API rejects them explicitly.
+-/
+def packedDirectionsCanonical (directions : Uint256) : Bool :=
+  shr 4 directions == 0
+
 def previewWitnessModel (witness : MerkleWitness) : Uint256 :=
   let level0 := step witness.leaf witness.sibling0 witness.sibling0OnLeft
   let level1 := step level0 witness.sibling1 witness.sibling1OnLeft
@@ -108,7 +116,8 @@ def verifyPathModel
 def verifyPackedPathModel
     (expectedRoot leaf sibling0 sibling1 sibling2 sibling3 directions : Uint256) :
     Bool :=
-  verifyWitnessModel expectedRoot <|
-    decodePackedWitness (mkPackedWitness leaf sibling0 sibling1 sibling2 sibling3 directions)
+  packedDirectionsCanonical directions &&
+    verifyWitnessModel expectedRoot
+      (decodePackedWitness (mkPackedWitness leaf sibling0 sibling1 sibling2 sibling3 directions))
 
 end SphincsKernel

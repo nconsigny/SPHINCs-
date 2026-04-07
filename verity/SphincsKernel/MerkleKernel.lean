@@ -106,6 +106,8 @@ verity_contract MerkleKernel where
         directions : Uint256) :
       Bool := do
     let stored ← getStorage pkRoot
+    -- Only canonical packed witnesses are accepted; high bits are an explicit decode failure.
+    let canonical := shr 4 directions == 0
     let sibling0OnLeft := bitAnd directions 1 != 0
     let sibling1OnLeft := bitAnd (shr 1 directions) 1 != 0
     let sibling2OnLeft := bitAnd (shr 2 directions) 1 != 0
@@ -130,6 +132,6 @@ verity_contract MerkleKernel where
       candidate := add (mul sibling3 65537) (add (mul level2 257) 97)
     else
       candidate := add (mul level2 65537) (add (mul sibling3 257) 97)
-    return (candidate == stored)
+    return (mul (boolToWord canonical) (boolToWord (candidate == stored)) != 0)
 
 end SphincsKernel

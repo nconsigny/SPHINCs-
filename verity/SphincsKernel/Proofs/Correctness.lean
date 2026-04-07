@@ -71,10 +71,20 @@ theorem verifyPackedPath_iff_decoded_witness_matches_root
     (s : ContractState)
     (leaf sibling0 sibling1 sibling2 sibling3 directions : Uint256) :
     ((verifyPackedPath leaf sibling0 sibling1 sibling2 sibling3 directions).run s).fst = true ↔
+      packedDirectionsCanonical directions = true ∧
       previewWitnessModel
         (decodePackedWitness (mkPackedWitness leaf sibling0 sibling1 sibling2 sibling3 directions)) =
         s.storage 0 := by
-  simp [verifyPackedPath, verifyPackedPathModel, verifyWitnessModel, beq_iff_eq]
+  simp [verifyPackedPath, verifyPackedPathModel, verifyPackedPathModel, previewPackedPath,
+    previewPath, previewPathModel, verifyWitnessModel, packedDirectionsCanonical, beq_iff_eq,
+    step, compress]
+
+theorem verifyPackedPath_rejects_noncanonical_directions
+    (s : ContractState)
+    (leaf sibling0 sibling1 sibling2 sibling3 directions : Uint256)
+    (h : packedDirectionsCanonical directions = false) :
+    ((verifyPackedPath leaf sibling0 sibling1 sibling2 sibling3 directions).run s).fst = false := by
+  simp [verifyPackedPath, packedDirectionsCanonical, h]
 
 theorem verifyPackedPath_preserves_state
     (s : ContractState)
@@ -85,12 +95,14 @@ theorem verifyPackedPath_preserves_state
 theorem configure_then_verifyPacked_roundtrip
     (s : ContractState)
     (leaf sibling0 sibling1 sibling2 sibling3 directions : Uint256) :
+    packedDirectionsCanonical directions = true →
     let expected := previewPackedPathModel leaf sibling0 sibling1 sibling2 sibling3 directions
     let s' := ((configureRoot expected).run s).snd
     ((verifyPackedPath leaf sibling0 sibling1 sibling2 sibling3 directions).run s').fst = true := by
-  intro expected s'
+  intro hCanonical expected s'
   simp [configureRoot, verifyPackedPath, verifyPackedPathModel, previewPackedPathModel,
-    verifyWitnessModel, pkRoot]
+    verifyWitnessModel, packedDirectionsCanonical, pkRoot, hCanonical, previewPackedPath,
+    previewPath, previewPathModel, step, compress]
 
 theorem configure_then_verify_roundtrip
     (s : ContractState)

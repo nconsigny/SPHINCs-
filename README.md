@@ -14,6 +14,23 @@
 
 Post-quantum signature verification on Ethereum using hash-based signatures (SPHINCS+ variants). Supports ERC-4337 hybrid accounts (ECDSA + SPHINCS+) and native EIP-8141 frame transaction accounts (pure PQ).
 
+## Verified Kernel
+
+This repo now includes a very small formally checked artifact:
+
+- a Merkle acceptance kernel for SPHINCS-style witnesses,
+- with the public claim that `verifyPath` and `verifyPackedPath` accept exactly the witnesses described by the Lean model,
+- with read-only verification,
+- and with malformed packed encodings rejected explicitly when direction bits outside the low 4 bits are set.
+
+The verified core is intentionally smaller than a full SPHINCS verifier. Parsing, witness derivation, and full cryptographic verification stay outside that proof boundary unless they can be specified just as cleanly.
+
+Why that is still useful:
+
+- a real verifier can derive or decode a typed witness off-chain or in unverified code,
+- pass that witness to the kernel,
+- and rely on a machine-checked guarantee about the exact on-chain acceptance rule.
+
 ## Architecture
 
 ### ERC-4337 Hybrid Account
@@ -180,8 +197,9 @@ The verified artifact in this repo is a small acceptance kernel in [`verity/Sphi
 It proves a narrow but strong property:
 
 - the Lean model defines exactly which fixed-depth Merkle witnesses are accepted,
-- the Verity contract implements that same rule,
-- the compiled EVM artifact preserves that rule,
+- a typed witness reconstructs exactly one root,
+- `verifyPath` returns `true` iff that reconstructed root equals the configured root,
+- `verifyPackedPath` returns `true` iff the packed input is canonical, decodes to a witness, and that witness reconstructs the configured root,
 - verification is read-only.
 
 The kernel exposes two interfaces:
@@ -195,7 +213,8 @@ What is not claimed:
 
 - this is not a proof of full SPHINCS cryptographic security,
 - this is not an end-to-end proof of the entire production C6 verifier,
-- the kernel's `compress` function is a small stand-in, not a real SPHINCS hash primitive.
+- the kernel's `compress` function is a small stand-in, not a real SPHINCS hash primitive,
+- parsing, witness derivation, and protocol integration are outside the verified kernel.
 
 The repo also includes a direct EVM replay test for the kernel:
 
