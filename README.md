@@ -169,21 +169,32 @@ python3 script/frame_tx.py send \
 ```bash
 forge test                                    # all tests
 forge test --match-contract C6Differential    # C6 cross-validation
+forge test --match-contract MerkleKernelVerityTest -vv  # Verity kernel artifact replay
 cd signer-wasm && cargo test --release -- --ignored  # Rust signer roundtrip
 ```
 
 ## Formal Verification (Lean 4 / Verity)
 
-The C6 verifier is formally verified in Lean 4 via [Verity](https://github.com/Th0rgal/verity): **3 axioms** (keccak256 cryptographic assumptions), **20 theorems** (chain binding, Merkle binding, digit sum, forced-zero, soundness), **0 sorry**.
+The repository now treats formal verification more narrowly and more honestly.
 
-The entire SPHINCS+ verification pipeline is compiled from Lean to Yul by the Verity compiler — no opaque oracle. The `verity_contract` macro version gets full Layer 1-2-3 compilation correctness proofs.
+Instead of claiming that the entire C6 SPHINCS- verifier is already proved end-to-end in Verity, the recommended verified artifact is a small Verity kernel in [`verity/SphincsKernel/`](verity/SphincsKernel/) that:
 
-| Version | Gas (EOA) | Formal guarantee |
-|---|---|---|
-| Hand-optimized ASM | 234K | Differential testing |
-| **`verity_contract` macro** | **283K** | **Verity Layer 1-2-3 proofs** |
+- reconstructs a fixed-depth Merkle root,
+- compares it to the stored `pkRoot`,
+- proves that the compiled contract implements exactly that Lean model,
+- uses no local obligations and no axiomatized primitives.
 
-See [`verity/README.md`](verity/README.md) for the full proof inventory, build instructions, and architecture.
+This is the right kind of guarantee for Verity today: small, explicit, replayable, and easy to audit. The larger `verity/SphincsC6/` model remains useful as a research model and reference, but it should not be read as a finished end-to-end Verity proof of the production verifier.
+
+See [`verity/README.md`](verity/README.md) for the updated architecture, build commands, and exact trust surface.
+
+The repository also includes a direct replay test for the recommended kernel:
+
+- it recompiles the generated Yul from `verity/artifacts/sphincs-kernel/MerkleKernel.yul`,
+- deploys that bytecode in Foundry,
+- compares it against a tiny Solidity reference model on fuzzed inputs.
+
+That gives a much clearer story than the older "full verifier in Verity" narrative: the verified artifact is small, concrete, and exercised exactly at the EVM boundary.
 
 ## References
 
