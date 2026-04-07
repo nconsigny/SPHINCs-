@@ -6,7 +6,7 @@ The public claim is narrow and strong:
 
 - a typed witness reconstructs exactly one root,
 - `verifyPath` returns `true` iff that reconstructed root equals the stored root,
-- `verifyPackedPath` returns `true` iff the packed input is canonical, decodes to that typed witness, and the reconstructed root equals the stored root,
+- `verifyPackedPath` returns `true` iff the packed input is canonical, decodes to a typed witness, and that typed witness is accepted by the same root-equality rule,
 - both verification entrypoints are read-only.
 
 Malformed packed encodings fail in one simple, explicit way: any direction word with non-zero bits above the low 4 bits is rejected.
@@ -26,7 +26,7 @@ Exact on-chain guarantee:
 
 - `previewPath` and `previewPackedPath` reconstruct exactly the root defined by the Lean model.
 - `verifyPath` returns `true` if and only if the reconstructed root equals the stored root.
-- `verifyPackedPath` returns `true` if and only if the packed input is canonical and the decoded witness reconstructs the stored root.
+- `verifyPackedPath` returns `true` if and only if the packed input is canonical and the decoded witness is accepted by the same typed acceptance rule.
 - Both verification entrypoints preserve storage.
 - The contract is compiled with `--deny-local-obligations` and `--deny-axiomatized-primitives`.
 
@@ -39,14 +39,15 @@ Outside the proof boundary:
 What is proved:
 
 - Lean proves the acceptance rule.
+- Lean also proves the packed/decode boundary: malformed encodings are rejected, and canonical encodings are accepted exactly when their decoded typed witness is accepted.
 - Verity proves the compiled EVM contract implements that rule.
 
 ## File map
 
 - `SphincsKernel/Model.lean`: typed witness model, packed witness decoding, and acceptance rule.
-- `SphincsKernel/MerkleKernel.lean`: Verity contract that calls the shared Lean model directly.
+- `SphincsKernel/MerkleKernel.lean`: Verity contract for the on-chain entrypoints.
 - `SphincsKernel/Spec.lean`: exact function-level specs.
-- `SphincsKernel/Proofs/Correctness.lean`: user-facing theorems such as acceptance iff reconstructed root matches storage.
+- `SphincsKernel/Proofs/Correctness.lean`: user-facing theorems such as typed-witness acceptance and packed-decoding acceptance.
 - `SphincsKernel/Examples.lean`: named examples for a concrete witness.
 
 ## Main properties
@@ -54,9 +55,14 @@ What is proved:
 The core statements are:
 
 - A witness is accepted exactly when it reconstructs the configured root.
-- A packed witness is accepted exactly when its encoding is canonical and its decoded witness reconstructs the configured root.
+- A packed witness is accepted exactly when its encoding is canonical and its decoded witness is accepted by the typed rule.
 - Verification is read-only.
 - If you configure the contract with the root reconstructed from a witness, that witness will verify.
+
+Current macro boundary:
+
+- `verity_contract` still requires the contract body to inline the acceptance logic today.
+- The shared Lean semantic core remains the proof reference: the specs and correctness theorems tie the deployed entrypoints back to that model exactly.
 
 That gives a small, inspectable, replayable kernel with one sharp claim instead of a broader but blurrier SPHINCS story.
 
@@ -92,7 +98,7 @@ That test:
 - fuzzes `previewPath` against a tiny Solidity reference model,
 - fuzzes `previewPackedPath` against a reference packed-decoding model,
 - fuzzes `verifyPath` to show acceptance iff `candidateRoot == storedRoot`,
-- fuzzes `verifyPackedPath` to show acceptance iff the decoded witness matches the stored root,
+- fuzzes `verifyPackedPath` to show acceptance iff the packed input is canonical and the decoded witness is accepted by the typed rule,
 - checks that verification preserves storage.
 
 ## Why this is useful for SPHINCS-

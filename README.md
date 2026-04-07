@@ -19,7 +19,8 @@ Post-quantum signature verification on Ethereum using hash-based signatures (SPH
 This repo now includes a very small formally checked artifact:
 
 - a Merkle acceptance kernel for SPHINCS-style witnesses,
-- with the public claim that `verifyPath` and `verifyPackedPath` accept exactly the witnesses described by the Lean model,
+- with the public claim that `verifyPath` accepts exactly the typed witnesses whose reconstructed root matches the stored root,
+- and `verifyPackedPath` accepts exactly the canonical packed encodings whose decoded typed witness is accepted by that same rule,
 - with read-only verification,
 - and with malformed packed encodings rejected explicitly when direction bits outside the low 4 bits are set.
 
@@ -199,7 +200,7 @@ It proves a narrow but strong property:
 - the Lean model defines exactly which fixed-depth Merkle witnesses are accepted,
 - a typed witness reconstructs exactly one root,
 - `verifyPath` returns `true` iff that reconstructed root equals the configured root,
-- `verifyPackedPath` returns `true` iff the packed input is canonical, decodes to a witness, and that witness reconstructs the configured root,
+- `verifyPackedPath` returns `true` iff the packed input is canonical, decodes to a typed witness, and that typed witness is accepted by the same root-equality rule,
 - verification is read-only.
 
 The kernel exposes two interfaces:

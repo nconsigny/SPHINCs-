@@ -30,6 +30,17 @@ theorem verifyPath_iff_reconstructs_stored_root
         sibling0OnLeft sibling1OnLeft sibling2OnLeft sibling3OnLeft = s.storage 0 := by
   simp [verifyPath, previewPath, verifyPathModel, previewPathModel, beq_iff_eq]
 
+theorem verifyPath_iff_accepts_typed_witness
+    (s : ContractState)
+    (leaf sibling0 sibling1 sibling2 sibling3 : Uint256)
+    (sibling0OnLeft sibling1OnLeft sibling2OnLeft sibling3OnLeft : Bool) :
+    ((verifyPath leaf sibling0 sibling1 sibling2 sibling3
+      sibling0OnLeft sibling1OnLeft sibling2OnLeft sibling3OnLeft).run s).fst = true ↔
+      verifyWitnessModel (s.storage 0)
+        (mkWitness leaf sibling0 sibling1 sibling2 sibling3
+          sibling0OnLeft sibling1OnLeft sibling2OnLeft sibling3OnLeft) = true := by
+  simp [verifyPath, verifyPathModel]
+
 theorem verifyPath_complete
     (s : ContractState)
     (leaf sibling0 sibling1 sibling2 sibling3 : Uint256)
@@ -78,6 +89,16 @@ theorem verifyPackedPath_iff_decoded_witness_matches_root
   simp [verifyPackedPath, verifyPackedPathModel, verifyPackedPathModel, previewPackedPath,
     previewPath, previewPathModel, verifyWitnessModel, packedDirectionsCanonical, beq_iff_eq,
     step, compress]
+
+theorem verifyPackedPath_iff_accepts_decoded_witness
+    (s : ContractState)
+    (leaf sibling0 sibling1 sibling2 sibling3 directions : Uint256) :
+    ((verifyPackedPath leaf sibling0 sibling1 sibling2 sibling3 directions).run s).fst = true ↔
+      packedDirectionsCanonical directions = true ∧
+      verifyWitnessModel (s.storage 0)
+        (decodePackedWitness (mkPackedWitness leaf sibling0 sibling1 sibling2 sibling3 directions)) =
+        true := by
+  simp [verifyPackedPath, verifyPackedPathModel, verifyWitnessModel, packedDirectionsCanonical]
 
 theorem verifyPackedPath_rejects_noncanonical_directions
     (s : ContractState)
