@@ -4,72 +4,82 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SPHINCs- is a research prototype implementing hybrid ECDSA + SPHINCS+ ERC-4337 smart accounts for Ethereum. It provides post-quantum signature verification on-chain using hand-optimized Yul/assembly verifiers. **Not audited, not production-safe.**
+SPHINCs- is a research prototype implementing post-quantum Ethereum accounts using SPHINCS+ hash-based signatures. Supports ERC-4337 hybrid accounts (ECDSA + SPHINCS+) and EIP-8141 frame transaction accounts (pure PQ). **Not audited, not production-safe.**
 
 ## Build and Test Commands
 
 ```bash
-forge build                                          # compile all contracts (uses via_ir + optimizer)
+forge build                                          # compile all contracts
 forge test                                           # run all tests
-forge test --match-contract AsmBenchmark -vv         # gas benchmarks (Solidity vs Assembly)
-forge test --match-contract E2EVerification -vv      # end-to-end with Python FFI signer
-forge test --match-test test_C2_E2E -vv              # single test
-forge test --match-contract GasBenchmark -vv         # per-component gas costs
-forge test --match-contract SecurityDecay -vv        # security decay tables
+cd signer-wasm && cargo test --release -- --ignored  # Rust signer roundtrip (9/9 tests)
 ```
 
-FFI is enabled (`ffi = true` in foundry.toml) — E2EVerification tests call `python3 script/signer.py` via `vm.ffi()`.
-
-Python environment (needed for FFI tests and UserOp scripts):
+Python environment:
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
 pip install eth-account eth-abi requests pycryptodome
 ```
 
 ## Architecture
 
-### Signature Flow
+### Shared Verifier Model
 
-UserOp signature = `abi.encode(ecdsaSig[65], sphincsSig[3740-4296])`. Both ECDSA and SPHINCS+ must verify. The SPHINCS+ verifier is a separate contract (one per user) storing `pkSeed` and `pkRoot`.
+The SPHINCS+ verifier is deployed once and shared by all accounts. Each account stores its own keys and calls the shared verifier with keys as arguments.
 
-### Contract Layers
+```
+SPHINCs-C6Asm.sol / SPHINCs-C7Asm.sol (deployed once, stateless, pure)
+    ↑ verify(pkSeed, pkRoot, message, sig) → bool
+    │
+    ├── SphincsAccount.sol (4337 hybrid, per-user)
+    └── Frame account (EIP-8141, per-user, keys in bytecode)
+```
 
-**Account layer:**
-- `SphincsAccount` — ERC-4337 `BaseAccount` with dual signature validation (ECDSA recovery + `verifier.staticcall`)
-- `SphincsAccountFactory` — CREATE2 factory deploying per-user verifier + account in one tx. Supports variants 2/3/4.
+### Contracts
 
-**Cryptographic primitives (libraries):**
-- `TweakableHash` — Core hash: `keccak256(seed || adrs || input)` truncated to 128-bit. ADRS is a 32-byte tweak encoding layer/tree/type/position.
-- `WotsPlusC` — WOTS+C: checksum-less WOTS with grinding (nonce `count` enforces fixed digit sum)
-- `ForsPlusC` — FORS+C: last-tree forced-zero grinding (omits one auth path)
-- `PorsFP` — PORS with Forced Pruning: single Merkle tree + Octopus-compressed auth sets
+| File | Purpose |
+|---|---|
+| `SPHINCs-C6Asm.sol` | Shared C6 verifier: w=16, l=32, sig=3352 bytes, verify=156K gas |
+| `SPHINCs-C7Asm.sol` | Shared C7 verifier: w=8, l=43, sig=3704 bytes, verify=127K gas |
+| `SphincsAccount.sol` | ERC-4337 hybrid account (stores keys as immutables) |
+| `SphincsAccountFactory.sol` | Deploys accounts (shared verifier in constructor) |
+| `SphincsFrameAccount.sol` | Solidity reference for EIP-8141 frame account |
 
-**Verifier contracts (one pair per variant):**
+### Variants
 
-| File | Variant | Scheme | Sig bytes |
-|---|---|---|---|
-| `SphincsWcFc18` / `Asm` | C2 | WOTS+C + FORS+C, h=18 d=2 | 4040 |
-| `SphincsWcPfp18` / `Asm` | C1 | WOTS+C + PORS+FP, h=18 d=2 | 4296 |
-| `SphincsWcPfp27` / `Asm` | C3 | WOTS+C + PORS+FP, h=27 d=3 | 4188 |
-| `SphincsWcFc30` / `Asm` | C4 | WOTS+C + FORS+C, h=30 d=3 | 3740 |
+| Variant | w | l | target_sum | Sig | Verify | 4337 | Frame |
+|---|---|---|---|---|---|---|---|
+| C6 | 16 | 32 | 240 | 3352 B | 156K | 333K | 232K |
+| **C7** | **8** | **43** | **151** | **3704 B** | **127K** | **312K** | **206K** |
 
-Each variant has a Solidity reference (`SphincsWc*.sol`) and an assembly-optimized version (`SphincsWc*Asm.sol`). The Asm versions use a fixed memory layout (no arrays, no free pointer) and inline all hash operations. Only Asm versions are used in production (via the factory).
+Both share: h=24, d=2, a=16, k=8, FORS+C, domain-separated H_msg (160 bytes).
 
-`SecurityAnalysis` — On-chain library for signature reuse decay estimation (birthday-bound analysis).
+### Off-chain Components
 
-### Python Off-chain Components (`script/`)
+- `script/signer.py` — Python signer (c2/c6/c7 variants)
+- `script/send_userop.py` — ERC-4337 UserOp builder
+- `script/frame_tx.py` — EIP-8141 frame tx builder
+- `script/deploy_frame_account.py` — Deploys v2 frame account (keys in bytecode)
+- `signer-wasm/` — Rust WASM signer with BIP-39/44 key derivation
 
-- `signer.py` — Reference SPHINCS+ signer. Generates keypairs, signs messages for all variants. Called via FFI from Foundry tests. Supports `c1`/`c2`/`c3`/`c4`.
-- `send_userop.py` — ERC-4337 UserOp builder. Derives SPHINCS+ keys from ECDSA private key, constructs and submits hybrid-signed UserOps to Sepolia.
-- `sweep_d2_fluhrer_dang.py` — Parameter sweep for Fluhrer-Dang security analysis.
+### Key Derivation
 
-### Key Parameters (n=128 bits throughout)
+BIP-39 mnemonic → HMAC-SHA512 → SPHINCS+ keys (quantum-safe path, independent from ECDSA).
 
-All variants use: `W=16`, `L=32`, `LEN1=32`, `TARGET_SUM=240`, `Z=0`, `N=16 bytes`. The differences are in hypertree height (`h`), depth (`d`), FORS/PORS tree count (`k`), and tree height (`a`).
+### Gas Optimizations Applied
 
-## Foundry Config Notes
+- Branchless Merkle swap: `mstore(xor(0x40, s), node)` (Solady pattern)
+- SHL for power-of-2 multiplications: `shl(4, i)` instead of `mul(i, 16)`
+- Hoisted loop-invariant chain address: `chainBase` computed once per chain
+- Domain-separated H_msg: 160-byte hash prevents ThPair collision
+- Frame account v2: keys embedded as PUSH32 (no SLOAD, saves 4.2K gas)
 
-- `via_ir = true` — required for deep stack in Solidity verifiers
-- `optimizer_runs = 200`
-- Remappings: `account-abstraction/` → `lib/account-abstraction/contracts/`, `@openzeppelin/contracts/` → `lib/openzeppelin-contracts/contracts/`
-- Deployed on Sepolia (chain ID 11155111)
+## Formal Verification (verity/)
+
+Lean 4 model via Verity framework: 3 axioms (keccak CR), 20 theorems, 0 sorry.
+`verity_contract` macro version gets Layer 1-2-3 compilation correctness proofs.
+See `verity/README.md` for proof inventory.
+
+## Foundry Config
+
+- `via_ir = true`, `optimizer_runs = 200`
+- `ffi = true` (for Python signer calls)
+- Deployed on Sepolia (chain 11155111) and ethrex (chain 1729)

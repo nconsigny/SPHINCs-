@@ -49,25 +49,20 @@ EntryPoint.handleOps()
 ### EIP-8141 Frame Transaction (Pure PQ)
 ```
 Frame Transaction (type 0x06)
-    ├── Frame 0 (VERIFY): frame account validates keys match storage,
-    │     forwards to shared verifier → APPROVE
+    ├── Frame 0 (VERIFY): frame account has keys embedded in bytecode,
+    │     builds verify(pkSeed, pkRoot, sigHash, sig) call internally → APPROVE
     └── Frame 1 (SENDER): ETH transfer / contract call
 ```
-No ECDSA — pure post-quantum. The frame account checks that `pkSeed`/`pkRoot` in the calldata match its own storage before forwarding, preventing key substitution attacks.
+No ECDSA — pure post-quantum. Keys are embedded in the frame account bytecode as PUSH32 instructions (no SLOAD, no calldata overhead).
 
-## C6 Parameters
+## Variants
 
-| | Value |
-|---|---|
-| Scheme | FORS+C (W+C_F+C) |
-| h=24, d=2 | subtree_h=12, 2 hypertree layers |
-| a=16, k=8 | 7 FORS trees + 1 forced-zero |
-| w=16, l=32 | WOTS+C with target_sum=240 |
-| Sig size | 3352 bytes |
-| Verify gas | ~156K (pure compute) |
-| Security | 128-bit @ 2^20 signatures |
+| Variant | w | l | Sig size | Verify gas | 4337 total | Frame tx | Security |
+|---|---|---|---|---|---|---|---|
+| C6 | 16 | 32 | 3352 bytes | 156K | 333K | 232K | 128-bit @ 2^20 |
+| **C7** | **8** | **43** | **3704 bytes** | **127K** | **312K** | **206K** | **128-bit @ 2^20** |
 
-Domain-separated H_msg (160-byte hash) prevents collision with ThPair/wotsDigest.
+Both share: h=24, d=2, a=16, k=8 (FORS+C). C7 trades +352 bytes sig for 19% less compute (fewer chain hash steps). Domain-separated H_msg (160-byte hash).
 
 ## Key Derivation
 
@@ -100,27 +95,26 @@ cargo test --release -- --ignored  # 9/9 tests
 
 | Contract | Address |
 |---|---|
-| Shared C6 Verifier | [`0xb8Cd1B...`](https://sepolia.etherscan.io/address/0xb8Cd1B03c999FeE1735100B47bBF0D047610eBAA) |
-| Factory | [`0xc2546e...`](https://sepolia.etherscan.io/address/0xc2546e0a8A7b854B911e8DFBA287a1C746267B2b) |
-| Account | [`0xE350BA...`](https://sepolia.etherscan.io/address/0xE350BA9A66045b19B668eA197077D4834e03C65D) |
+| Shared C7 Verifier | [`0x694C0a...`](https://sepolia.etherscan.io/address/0x694C0a72290FEd14c3641E0975F8d0939F84ee23) |
+| C7 Account | [`0x8b8d01...`](https://sepolia.etherscan.io/address/0x8b8d01b7c553a3a0267eb646ad8b68513457c144) |
 | EntryPoint v0.9 | `0x433709009B8330FDa32311DF1C2AFA402eD8D009` |
 
-| Description | Gas | Tx |
-|---|---|---|
-| Real ETH transfer (hybrid, shared verifier) | 315,137 | [`0x65e11e83...`](https://sepolia.etherscan.io/tx/0x65e11e83e451326d0f2fda2af9b00b9c6ed4c5481d508194f9e22bcbcc1888ad) |
+| Description | Gas | Verify | Tx |
+|---|---|---|---|
+| C7 real ETH transfer (4337 hybrid) | 312K | 127K | [`0xe42cc9b4...`](https://sepolia.etherscan.io/tx/0xe42cc9b4f875d3e1630edb19cdaee9c23bf4c7162c64d259eb02494520c8751f) |
 
 ### ethrex Testnet (EIP-8141 Frame Tx — Pure PQ)
 
 | Contract | Address |
 |---|---|
-| Shared C6 Verifier | [`0x2E2Ed0...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x2E2Ed0Cfd3AD2f1d34481277b3204d807Ca2F8c2) |
-| Frame Account | [`0x8198f5...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x8198f5d8F8CfFE8f9C413d98a0A55aEB8ab9FbB7) |
+| Shared C7 Verifier | [`0xf953b3...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xf953b3A269d80e3eB0F2947630Da976B896A8C5b) |
+| C7 Frame Account (v2) | [`0xAA292E...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xAA292E8611aDF267e563f334Ee42320aC96D0463) |
 
-| Description | Gas | Tx |
-|---|---|---|
-| Frame tx — pure PQ (block 726003) | 231,692 | [`0x8a903f9d...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0x8a903f9d586c58176b2673d2f0a9243ace3b5af4e35259bd474f0a9705112b90) |
+| Description | Gas | Verify | Tx |
+|---|---|---|---|
+| C7 frame tx — pure PQ (block 801430) | 206K | 130K | [`0x881f25c9...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0x881f25c93319c0211957a95c04b4eef1594851acedfbec63ba898c6f1ddc1c5c) |
 
-Chain ID: 1729. VERIFY frame (161K) validates keys + SPHINCS+ signature, SENDER frame executes. No ECDSA, pure post-quantum.
+Chain ID: 1729. Keys embedded in bytecode (no SLOAD). VERIFY frame runs SPHINCS+ C7 verification, SENDER frame executes. No ECDSA, pure post-quantum.
 
 ## Setup
 
