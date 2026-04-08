@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-Deploy a SPHINCS+ C6 frame account using the SHARED verifier model.
+Deploy a SPHINCS+ frame account (v2) with keys embedded in bytecode.
 
-The frame account is a thin proxy: it forwards calldata to the shared
-verifier via STATICCALL, then calls APPROVE if verification succeeds.
+Keys are PUSH32 instructions in the runtime bytecode — no storage,
+no SLOAD, no calldata overhead for keys. The frame account receives
+sigHash(32) + raw_sig(N) and internally builds the full ABI call to
+the shared verifier.
 
-The frame_tx.py script builds the full calldata including pkSeed/pkRoot,
-so the frame account doesn't need to read keys from storage. It just
-stores them for identification and forwards everything.
+Gas savings vs v1:
+  - No SLOAD (saves 4,200 gas per VERIFY frame)
+  - No key calldata (saves ~1,024 gas)
+  - No SSTORE at deploy (saves ~40,000 gas)
 """
 
 import sys, os, json, subprocess, argparse
@@ -18,56 +21,73 @@ from signer import keccak256, to_b32, N_MASK, sign_variant, derive_keys, VARIANT
 DEV_KEY = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
 
-def build_frame_account_bytecode(shared_verifier_addr: str, pk_seed: bytes, pk_root: bytes) -> bytes:
-    """Build raw EVM bytecode for the frame account.
+def build_frame_account_bytecode(shared_verifier_addr: str, pk_seed: bytes, pk_root: bytes, variant: str = "c7") -> bytes:
+    """Build v2 frame account bytecode with keys embedded in code.
 
-    Simple proxy: forward all calldata to shared verifier, APPROVE if true.
-    The frame_tx.py builds the full verify(pkSeed, pkRoot, sigHash, sig) calldata.
+    Runtime receives: sigHash(32 bytes) || raw_sig(N bytes)
+    Builds in memory: verify(pkSeed, pkRoot, sigHash, sig) ABI-encoded call
+    Then STATICCALLs the shared verifier and APPROVEs if true.
     """
     verifier = bytes.fromhex(shared_verifier_addr.replace("0x", ""))
 
+    # verify(bytes32,bytes32,bytes32,bytes) selector
+    verify_sel = keccak256(b"verify(bytes32,bytes32,bytes32,bytes)").to_bytes(32, "big")[:4]
+
     code = bytearray()
 
-    # If calldatasize == 0: receive ETH
+    # If calldatasize == 0: receive ETH (STOP)
     code += bytes([0x36, 0x15])  # CALLDATASIZE, ISZERO
     code += bytes([0x60, 0x00])  # PUSH1 <receive> (patched)
     receive_patch = len(code) - 1
     code += bytes([0x57])  # JUMPI
 
-    # Verify pkSeed matches storage slot 0
-    # calldata[4:36] must equal sload(0)
-    code += bytes([0x60, 0x04])  # PUSH1 4
-    code += bytes([0x35])  # CALLDATALOAD(4) — pkSeed from calldata
-    code += bytes([0x5f])  # PUSH0
-    code += bytes([0x54])  # SLOAD(0) — pkSeed from storage
-    code += bytes([0x14])  # EQ
-    code += bytes([0x15])  # ISZERO
-    code += bytes([0x60, 0x00])  # PUSH1 <revert> (patched)
-    seed_check_patch = len(code) - 1
-    code += bytes([0x57])  # JUMPI — revert if mismatch
+    # Build verifier calldata in memory:
+    # mem[0x00:0x04] = verify selector
+    code += bytes([0x63]) + verify_sel  # PUSH4 selector
+    code += bytes([0x60, 0xe0, 0x1b])  # PUSH1 224, SHL (left-align in word)
+    code += bytes([0x5f, 0x52])  # PUSH0, MSTORE at 0x00
 
-    # Verify pkRoot matches storage slot 1
-    # calldata[36:68] must equal sload(1)
-    code += bytes([0x60, 0x24])  # PUSH1 36
-    code += bytes([0x35])  # CALLDATALOAD(36) — pkRoot from calldata
-    code += bytes([0x60, 0x01])  # PUSH1 1
-    code += bytes([0x54])  # SLOAD(1) — pkRoot from storage
-    code += bytes([0x14])  # EQ
-    code += bytes([0x15])  # ISZERO
-    code += bytes([0x60, 0x00])  # PUSH1 <revert> (patched)
-    root_check_patch = len(code) - 1
-    code += bytes([0x57])  # JUMPI — revert if mismatch
+    # mem[0x04:0x24] = pkSeed (embedded in bytecode as PUSH32)
+    code += bytes([0x7f]) + pk_seed  # PUSH32 pkSeed
+    code += bytes([0x60, 0x04, 0x52])  # PUSH1 4, MSTORE
 
-    # Forward entire calldata to shared verifier via STATICCALL
+    # mem[0x24:0x44] = pkRoot (embedded in bytecode as PUSH32)
+    code += bytes([0x7f]) + pk_root  # PUSH32 pkRoot
+    code += bytes([0x60, 0x24, 0x52])  # PUSH1 0x24, MSTORE
+
+    # mem[0x44:0x64] = sigHash from calldata[0:32]
+    code += bytes([0x5f, 0x35])  # PUSH0, CALLDATALOAD(0)
+    code += bytes([0x60, 0x44, 0x52])  # PUSH1 0x44, MSTORE
+
+    # mem[0x64:0x84] = 0x80 (ABI offset for bytes param = 4 words)
+    code += bytes([0x60, 0x80])  # PUSH1 0x80
+    code += bytes([0x60, 0x64, 0x52])  # PUSH1 0x64, MSTORE
+
+    # mem[0x84:0xA4] = sig length = calldatasize - 32
     code += bytes([0x36])  # CALLDATASIZE
-    code += bytes([0x5f])  # PUSH0 (destOffset)
-    code += bytes([0x5f])  # PUSH0 (offset)
+    code += bytes([0x60, 0x20, 0x90, 0x03])  # PUSH1 32, SWAP1, SUB → calldatasize-32
+    code += bytes([0x60, 0x84, 0x52])  # PUSH1 0x84, MSTORE
+
+    # mem[0xA4:...] = sig bytes from calldata[32:]
+    # CALLDATACOPY(destOffset=0xA4, srcOffset=32, size=calldatasize-32)
+    code += bytes([0x36])  # CALLDATASIZE
+    code += bytes([0x60, 0x20, 0x90, 0x03])  # PUSH1 32, SWAP1, SUB → size
+    code += bytes([0x60, 0x20])  # PUSH1 32 (srcOffset)
+    code += bytes([0x60, 0xA4])  # PUSH1 0xA4 (destOffset)
     code += bytes([0x37])  # CALLDATACOPY
 
-    # STATICCALL(gas, addr, argsOffset=0, argsLen=calldatasize, retOffset=calldatasize, retLen=32)
-    code += bytes([0x60, 0x20])  # PUSH1 32 (retLen)
-    code += bytes([0x36])  # CALLDATASIZE (retOffset)
-    code += bytes([0x36])  # CALLDATASIZE (argsLen)
+    # argsLen = calldatasize - 32 + 0xA4 = calldatasize + 0x84
+    # STATICCALL(gas, verifier, 0, argsLen, argsLen, 32)
+    code += bytes([0x36])  # CALLDATASIZE
+    code += bytes([0x60, 0x84, 0x01])  # PUSH1 0x84, ADD → argsLen
+
+    # Stack: argsLen
+    # Need: gas, addr, offset(0), argsLen, retOffset(argsLen), retLen(32)
+    code += bytes([0x80])  # DUP1 → [argsLen, argsLen]
+    code += bytes([0x60, 0x20])  # PUSH1 32 → [32, argsLen, argsLen]
+    code += bytes([0x91])  # SWAP2 → [argsLen, argsLen, 32]
+    # Stack (bottom→top): 32, argsLen, argsLen
+    # For STATICCALL: retLen(32), retOffset(argsLen), argsLen, offset(0), addr, gas
     code += bytes([0x5f])  # PUSH0 (argsOffset)
     code += bytes([0x73]) + verifier  # PUSH20 verifier
     code += bytes([0x5a])  # GAS
@@ -79,8 +99,9 @@ def build_frame_account_bytecode(shared_verifier_addr: str, pk_seed: bytes, pk_r
     revert_patch = len(code) - 1
     code += bytes([0x57])  # JUMPI
 
-    # Check return value
-    code += bytes([0x36])  # CALLDATASIZE (retOffset)
+    # Check return value: argsLen is gone from stack after STATICCALL
+    # retOffset was argsLen = calldatasize + 0x84
+    code += bytes([0x36, 0x60, 0x84, 0x01])  # CALLDATASIZE, PUSH1 0x84, ADD → retOffset
     code += bytes([0x51])  # MLOAD
     code += bytes([0x15])  # ISZERO
     code += bytes([0x60, 0x00])  # PUSH1 <revert> (patched)
@@ -88,33 +109,30 @@ def build_frame_account_bytecode(shared_verifier_addr: str, pk_seed: bytes, pk_r
     code += bytes([0x57])  # JUMPI
 
     # APPROVE(0, 0, 3)
-    code += bytes([0x60, 0x03, 0x5f, 0x5f, 0xaa, 0x00])
+    code += bytes([0x60, 0x03, 0x5f, 0x5f, 0xaa, 0x00])  # PUSH1 3, PUSH0, PUSH0, APPROVE, STOP
 
     # REVERT
     revert_target = len(code)
-    code += bytes([0x5b, 0x5f, 0x5f, 0xfd])
+    code += bytes([0x5b, 0x5f, 0x5f, 0xfd])  # JUMPDEST, PUSH0, PUSH0, REVERT
 
     # RECEIVE
     receive_target = len(code)
-    code += bytes([0x5b, 0x00])
+    code += bytes([0x5b, 0x00])  # JUMPDEST, STOP
 
-    # Patch all jump targets
+    # Patch jump targets
     code[receive_patch] = receive_target
-    code[seed_check_patch] = revert_target
-    code[root_check_patch] = revert_target
     code[revert_patch] = revert_target
     code[revert_patch2] = revert_target
 
-    # Creation: store pkSeed/pkRoot (for identification), return runtime
+    # Creation code: just CODECOPY + RETURN (no SSTORE)
     runtime = bytes(code)
     creation = bytearray()
-    creation += bytes([0x7f]) + pk_seed + bytes([0x5f, 0x55])
-    creation += bytes([0x7f]) + pk_root + bytes([0x60, 0x01, 0x55])
-
-    codecopy_len = 10
-    total = len(creation) + codecopy_len
-    creation += bytes([0x60, len(runtime), 0x60, total, 0x5f, 0x39])
-    creation += bytes([0x60, len(runtime), 0x5f, 0xf3])
+    creation_len = 10  # PUSH1 len, PUSH1 offset, PUSH0, CODECOPY, PUSH1 len, PUSH0, RETURN
+    creation += bytes([0x60, len(runtime)])  # PUSH1 runtime_len
+    creation += bytes([0x60, creation_len])  # PUSH1 code_offset
+    creation += bytes([0x5f, 0x39])  # PUSH0, CODECOPY
+    creation += bytes([0x60, len(runtime)])  # PUSH1 runtime_len
+    creation += bytes([0x5f, 0xf3])  # PUSH0, RETURN
     creation += runtime
 
     return bytes(creation)
@@ -125,28 +143,27 @@ def main():
     parser.add_argument("--rpc", default="https://demo.eip-8141.ethrex.xyz/rpc")
     parser.add_argument("--dev-key", default="0x" + DEV_KEY)
     parser.add_argument("--shared-verifier", required=True)
+    parser.add_argument("--variant", default="c7", choices=["c6", "c7"])
     args = parser.parse_args()
 
     rpc = args.rpc
     dev_key = args.dev_key.replace("0x", "")
+    variant = args.variant
 
-    info_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".frame_c6_deploy.json")
-    if os.path.exists(info_path):
-        with open(info_path) as f:
-            deploy_info = json.load(f)
-        pk_seed = bytes.fromhex(deploy_info["seed"][2:])
-        pk_root = bytes.fromhex(deploy_info["root"][2:])
-    else:
-        entropy_input = bytes.fromhex(dev_key) + b"c6"
-        keygen_msg = keccak256(b"sphincs_keygen" + entropy_input)
-        seed, root, _ = sign_variant("c6", keygen_msg)
-        pk_seed = seed.to_bytes(32, "big")
-        pk_root = root.to_bytes(32, "big")
-        deploy_info = {"seed": "0x" + pk_seed.hex(), "root": "0x" + pk_root.hex()}
+    info_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".frame_{variant}_deploy.json")
 
+    # Generate keys
+    entropy_input = bytes.fromhex(dev_key) + variant.encode()
+    keygen_msg = keccak256(b"sphincs_keygen" + entropy_input)
+    seed, root, _ = sign_variant(variant, keygen_msg)
+    pk_seed = seed.to_bytes(32, "big")
+    pk_root = root.to_bytes(32, "big")
+    deploy_info = {"seed": "0x" + pk_seed.hex(), "root": "0x" + pk_root.hex(), "variant": variant}
+
+    print(f"Variant: {variant}")
     print(f"Shared verifier: {args.shared_verifier}")
-    bytecode = build_frame_account_bytecode(args.shared_verifier, pk_seed, pk_root)
-    print(f"Frame account bytecode: {len(bytecode)} bytes")
+    bytecode = build_frame_account_bytecode(args.shared_verifier, pk_seed, pk_root, variant)
+    print(f"Runtime: {len(bytecode) - 10} bytes, Creation: {len(bytecode)} bytes")
 
     proc = subprocess.run(
         ["cast", "send", "--rpc-url", rpc, "--private-key", "0x" + dev_key,

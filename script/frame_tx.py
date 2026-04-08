@@ -211,14 +211,15 @@ def cmd_deploy(args):
 
 
 def cmd_send(args):
-    """Send a type-6 frame transaction with SPHINCS+ C6 verification."""
+    """Send a type-6 frame transaction with SPHINCS+ verification."""
     rpc = args.rpc
     chain_id = get_chain_id(rpc)
     sender = args.account
     to = args.to
     value_wei = int(float(args.value) * 1e18)
+    variant = args.variant if hasattr(args, 'variant') and args.variant else "c7"
 
-    print(f"=== EIP-8141 Frame Transaction (SPHINCS+ C6) ===")
+    print(f"=== EIP-8141 Frame Transaction (SPHINCS+ {variant.upper()}) ===")
     print(f"Chain: {chain_id}, Sender: {sender}")
     print(f"To: {to}, Value: {args.value} ETH")
 
@@ -227,13 +228,13 @@ def cmd_send(args):
     print(f"Nonce: {nonce}, Balance: {balance / 1e18:.4f} ETH")
 
     # Load verifier info
-    info_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".frame_c6_deploy.json")
+    info_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".frame_{variant}_deploy.json")
     if not os.path.exists(info_path):
         print("Error: No deployment info. Run 'deploy' first.", file=sys.stderr)
         sys.exit(1)
     with open(info_path) as f:
         deploy_info = json.load(f)
-    verifier = deploy_info["verifier"]
+    verifier = deploy_info.get("shared_verifier", deploy_info.get("verifier"))
     print(f"Verifier: {verifier}")
 
     # EIP-8141 Frame layout (matching working ethrex pattern):
@@ -264,28 +265,23 @@ def cmd_send(args):
     sig_hash = compute_sig_hash(tx_payload_for_hash)
     print(f"Sig hash: 0x{sig_hash:064x}")
 
-    # Sign with SPHINCS+ C6
-    print("Signing with SPHINCS+ C6...")
+    # Sign with SPHINCS+
+    variant = args.variant if hasattr(args, 'variant') and args.variant else "c7"
+    print(f"Signing with SPHINCS+ {variant}...")
     seed_int = int(deploy_info["seed"], 16)
     root_int = int(deploy_info["root"], 16)
 
     dev_key = args.dev_key.replace("0x", "") if args.dev_key else DEV_KEY
-    entropy_input = bytes.fromhex(dev_key) + b"c6"
+    entropy_input = bytes.fromhex(dev_key) + variant.encode()
     keygen_msg = keccak256(b"sphincs_keygen" + entropy_input)
     _, sk_seed = derive_keys(keygen_msg)
 
-    sphincs_sig = sign_with_known_keys("c6", sig_hash, seed_int, sk_seed, root_int)
+    sphincs_sig = sign_with_known_keys(variant, sig_hash, seed_int, sk_seed, root_int)
     print(f"  Signature: {len(sphincs_sig)} bytes")
 
-    # Build VERIFY frame data: verify(bytes32 pkSeed, bytes32 pkRoot, bytes32 sigHash, bytes sig)
-    # The frame account forwards this directly to the shared verifier
-    from eth_abi import encode
-    verify_selector = keccak256(b"verify(bytes32,bytes32,bytes32,bytes)").to_bytes(32, "big")[:4]
-    verify_calldata = verify_selector + encode(
-        ["bytes32", "bytes32", "bytes32", "bytes"],
-        [seed_int.to_bytes(32, "big"), root_int.to_bytes(32, "big"),
-         sig_hash.to_bytes(32, "big"), sphincs_sig]
-    )
+    # v2 frame data: sigHash(32) + raw_sig(N) — no selector, no keys
+    # The frame account embeds keys in bytecode and builds the ABI call internally
+    verify_calldata = sig_hash.to_bytes(32, "big") + sphincs_sig
 
     # Final frames with actual signature
     frames_final = [
@@ -351,6 +347,7 @@ def main():
     p_send.add_argument("--to", required=True, help="Recipient address")
     p_send.add_argument("--value", default="0.001", help="Value in ETH")
     p_send.add_argument("--dev-key", default="0x" + DEV_KEY)
+    p_send.add_argument("--variant", default="c7", choices=["c6", "c7"])
 
     args = parser.parse_args()
     if args.command == "deploy":
