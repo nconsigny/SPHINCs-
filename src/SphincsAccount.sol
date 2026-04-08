@@ -7,17 +7,16 @@ import "account-abstraction/interfaces/IEntryPoint.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /// @title SphincsAccount - Hybrid ECDSA + SPHINCS+ account using a SHARED verifier
-/// @notice The account stores pkSeed/pkRoot and passes them to a shared stateless verifier.
+/// @notice Keys stored in storage (not immutable) to support future key rotation.
 ///         The shared verifier is deployed once and used by all accounts.
-///         Follows the ZKnox/Kohaku pattern (ISigVerifier with keys as arguments).
 contract SphincsAccount is BaseAccount {
     using ECDSA for bytes32;
 
     IEntryPoint private immutable _entryPoint;
-    address public immutable owner;          // ECDSA signer
-    address public immutable verifier;       // Shared SphincsC6Shared address (same for all users)
-    bytes32 public immutable pkSeed;         // SPHINCS+ public seed (per-user)
-    bytes32 public immutable pkRoot;         // SPHINCS+ Merkle root (per-user)
+    address public immutable verifier;       // Shared verifier (same for all users)
+    address public owner;                    // ECDSA signer (rotatable)
+    bytes32 public pkSeed;                   // SPHINCS+ public seed (rotatable)
+    bytes32 public pkRoot;                   // SPHINCS+ Merkle root (rotatable)
 
     error NotOwnerOrEntryPoint();
 
@@ -29,8 +28,8 @@ contract SphincsAccount is BaseAccount {
         bytes32 _pkRoot
     ) {
         _entryPoint = ep;
-        owner = _owner;
         verifier = _verifier;
+        owner = _owner;
         pkSeed = _pkSeed;
         pkRoot = _pkRoot;
     }
@@ -44,6 +43,21 @@ contract SphincsAccount is BaseAccount {
             msg.sender == address(entryPoint()) || msg.sender == owner,
             NotOwnerOrEntryPoint()
         );
+    }
+
+    /// @notice Rotate SPHINCS+ keys. Can only be called by the account itself
+    ///         (via execute) or by the EntryPoint during a UserOp.
+    function rotateKeys(bytes32 newPkSeed, bytes32 newPkRoot) external {
+        require(msg.sender == address(this) || msg.sender == address(entryPoint()), NotOwnerOrEntryPoint());
+        pkSeed = newPkSeed;
+        pkRoot = newPkRoot;
+    }
+
+    /// @notice Rotate ECDSA owner.
+    function rotateOwner(address newOwner) external {
+        require(msg.sender == address(this) || msg.sender == address(entryPoint()), NotOwnerOrEntryPoint());
+        require(newOwner != address(0));
+        owner = newOwner;
     }
 
     /// @notice Validate hybrid signature: abi.encode(ecdsaSig, sphincsSig)
@@ -62,7 +76,7 @@ contract SphincsAccount is BaseAccount {
             return SIG_VALIDATION_FAILED;
         }
 
-        // 2. Verify SPHINCS+ via shared verifier (keys passed as arguments)
+        // 2. Verify SPHINCS+ via shared verifier
         (bool success, bytes memory result) = verifier.staticcall(
             abi.encodeWithSignature(
                 "verify(bytes32,bytes32,bytes32,bytes)",
