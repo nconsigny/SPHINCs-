@@ -24,8 +24,8 @@ The SPHINCS- verifier is **deployed once** and shared by all accounts. Follows t
 SPHINCs-Asm (deployed once, stateless, pure)
     ↑ verify(pkSeed, pkRoot, message, sig) → bool
     │
-    ├── SphincsAccount (4337)       ← keys as immutables, passes to verifier
-    └── FrameAccount (EIP-8141)     ← keys embedded in bytecode as PUSH32
+    ├── SphincsAccount (4337)       ← keys in storage, rotatable
+    └── FrameAccount (EIP-8141)     ← keys in storage, rotatable
 ```
 
 ### ERC-4337 Hybrid Account
@@ -49,14 +49,14 @@ Frame Transaction (type 0x06)
     │     from embedded keys + calldata → STATICCALLs shared verifier → APPROVE
     └── Frame 1 (SENDER): ETH transfer / contract call
 ```
-No ECDSA — pure post-quantum.
+No ECDSA — pure post-quantum. Keys are stored in EVM storage (not bytecode) to support future key rotation via `rotateKeys()` — costs ~4K gas per verify but keeps the same account address across key changes.
 
 ## Variants
 
 | Variant | w | l | Sig size | Verify gas | 4337 total | Frame tx | Security |
 |---|---|---|---|---|---|---|---|
 | C6 | 16 | 32 | 3352 bytes | 156K | 333K | 232K | 128-bit @ 2^20 |
-| **C7** | **8** | **43** | **3704 bytes** | **127K** | **312K** | **206K** | **128-bit @ 2^20** |
+| **C7** | **8** | **43** | **3704 bytes** | **127K** | **318K** | **210K** | **128-bit @ 2^20** |
 
 Both share: h=24, d=2, a=16, k=8 (FORS+C). C7 trades +352 bytes sig for 19% less compute (fewer chain hash steps). Domain-separated H_msg (160-byte hash).
 
@@ -97,7 +97,7 @@ cargo test --release -- --ignored  # 9/9 tests
 
 | Description | Gas | Verify | Tx |
 |---|---|---|---|
-| C7 real ETH transfer (4337 hybrid) | 312K | 127K | [`0xe42cc9b4...`](https://sepolia.etherscan.io/tx/0xe42cc9b4f875d3e1630edb19cdaee9c23bf4c7162c64d259eb02494520c8751f) |
+| C7 real ETH transfer (4337 hybrid) | 318K | 127K | [`0xced796ed...`](https://sepolia.etherscan.io/tx/0xced796ed90b82006ecedf896b4b629118c95545b307542fd26a891a367bd3f95) |
 
 ### ethrex Testnet (EIP-8141 Frame Tx — Pure PQ)
 
@@ -108,9 +108,9 @@ cargo test --release -- --ignored  # 9/9 tests
 
 | Description | Gas | Verify | Tx |
 |---|---|---|---|
-| C7 frame tx — pure PQ (block 801430) | 206K | 130K | [`0x881f25c9...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0x881f25c93319c0211957a95c04b4eef1594851acedfbec63ba898c6f1ddc1c5c) |
+| C7 frame tx — pure PQ (block 802432) | 210K | 135K | [`0xaf875b26...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0xaf875b2615b5c3610ea619b922588ee66338824b1e0e130112033f5a7904cf3e) |
 
-Chain ID: 1729. Keys embedded in bytecode (no SLOAD). VERIFY frame runs SPHINCS+ C7 verification, SENDER frame executes. No ECDSA, pure post-quantum.
+Chain ID: 1729. VERIFY frame reads keys from storage, runs SPHINCS+ C7 verification, SENDER frame executes. No ECDSA, pure post-quantum.
 
 ## Setup
 
