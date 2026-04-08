@@ -26,11 +26,11 @@ pip install eth-account eth-abi requests pycryptodome
 The SPHINCS+ verifier is deployed once and shared by all accounts. Each account stores its own keys and calls the shared verifier with keys as arguments.
 
 ```
-SPHINCs-C6Asm.sol / SPHINCs-C7Asm.sol (deployed once, stateless, pure)
+SPHINCs-Asm (deployed once, stateless, pure)
     ↑ verify(pkSeed, pkRoot, message, sig) → bool
     │
-    ├── SphincsAccount.sol (4337 hybrid, per-user)
-    └── Frame account (EIP-8141, per-user, keys in bytecode)
+    ├── SphincsAccount (4337)       ← keys as immutables, passes to verifier
+    └── FrameAccount (EIP-8141)     ← keys embedded in bytecode as PUSH32
 ```
 
 ### Contracts

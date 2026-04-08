@@ -18,28 +18,21 @@ Post-quantum signature verification on Ethereum using hash-based signatures (SPH
 
 ### Shared Verifier Model
 
-The SPHINCS- C6 verifier is **deployed once** and shared by all accounts. Each account stores its own public keys (`pkSeed`, `pkRoot`) and calls the shared verifier with its keys as arguments. Follows the [ZKnox/Kohaku](https://github.com/ethereum/kohaku/tree/master/examples/pq-account) pattern.
+The SPHINCS- verifier is **deployed once** and shared by all accounts. Follows the [ZKnox/Kohaku](https://github.com/ethereum/kohaku/tree/master/examples/pq-account) pattern.
 
 ```
-SphincsC6Asm (deployed once, stateless)
+SPHINCs-Asm (deployed once, stateless, pure)
     ↑ verify(pkSeed, pkRoot, message, sig) → bool
     │
-    ├── SphincsAccount (4337, per-user)     ← stores keys + ECDSA owner
-    └── FrameAccount (EIP-8141, per-user)   ← stores keys, validates before forwarding
+    ├── SphincsAccount (4337)       ← keys as immutables, passes to verifier
+    └── FrameAccount (EIP-8141)     ← keys embedded in bytecode as PUSH32
 ```
 
 ### ERC-4337 Hybrid Account
+
+The account stores keys as immutables and passes them to the shared verifier on each UserOp.
+
 ```
-BIP-39 mnemonic (12/24 words)
-    │
-    ├── SPHINCS+ keypair (quantum-safe, via HMAC-SHA512)
-    │       ├── pkSeed + pkRoot → stored in account contract
-    │       └── sk_seed → never stored
-    │
-    └── ECDSA key (via BIP-32 m/44'/60'/0'/0/0)
-
-UserOp signature = abi.encode(ecdsaSig[65], sphincsSig[3352])
-
 EntryPoint.handleOps()
     └── SphincsAccount._validateSignature()
             ├── ECDSA.recover(userOpHash, ecdsaSig) == owner
@@ -47,13 +40,16 @@ EntryPoint.handleOps()
 ```
 
 ### EIP-8141 Frame Transaction (Pure PQ)
+
+The frame account has keys baked into its bytecode — no storage, no calldata overhead for keys. It receives `sigHash + raw_sig`, builds the full ABI call to the shared verifier internally, and calls APPROVE on success.
+
 ```
 Frame Transaction (type 0x06)
-    ├── Frame 0 (VERIFY): frame account has keys embedded in bytecode,
-    │     builds verify(pkSeed, pkRoot, sigHash, sig) call internally → APPROVE
+    ├── Frame 0 (VERIFY): frame account builds verify(pkSeed, pkRoot, sigHash, sig)
+    │     from embedded keys + calldata → STATICCALLs shared verifier → APPROVE
     └── Frame 1 (SENDER): ETH transfer / contract call
 ```
-No ECDSA — pure post-quantum. Keys are embedded in the frame account bytecode as PUSH32 instructions (no SLOAD, no calldata overhead).
+No ECDSA — pure post-quantum.
 
 ## Variants
 
