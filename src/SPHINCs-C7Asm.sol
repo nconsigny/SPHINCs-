@@ -57,9 +57,10 @@ contract SphincsC7Asm {
                     let sibling := and(calldataload(add(authPtr, shl(4, h))), N_MASK)
                     let parentIdx := shr(1, pathIdx)
                     mstore(0x20, or(treeAdrsBase, or(shl(32, add(h, 1)), parentIdx)))
-                    let bit := and(pathIdx, 1)
-                    mstore(0x40, xor(node, mul(xor(node, sibling), bit)))
-                    mstore(0x60, xor(sibling, mul(xor(sibling, node), bit)))
+                    // Branchless Merkle swap (Solady pattern)
+                    let s := shl(5, and(pathIdx, 1))
+                    mstore(xor(0x40, s), node)
+                    mstore(xor(0x60, s), sibling)
                     node := and(keccak256(0x00, 0x80), N_MASK)
                     pathIdx := parentIdx
                 }
@@ -111,17 +112,17 @@ contract SphincsC7Asm {
                 // Complete 43 chains (w=8: max 7 steps per chain)
                 let wotsPtr := add(sigBase, sigOff)
                 for { let i := 0 } lt(i, 43) { i := add(i, 1) } {
-                    let digit := and(shr(mul(i, 3), d), 0x7)  // 3-bit digit
-                    let steps := sub(7, digit)  // w-1-digit
+                    let digit := and(shr(mul(i, 3), d), 0x7)
+                    let steps := sub(7, digit)
                     let val := and(calldataload(add(wotsPtr, shl(4, i))), N_MASK)
-                    let chainAdrs := or(wotsAdrs, shl(64, i))
+                    // Pre-compute loop-invariant masked chain address
+                    let chainBase := and(
+                        or(wotsAdrs, shl(64, i)),
+                        0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000FFFFFFFF
+                    )
 
                     for { let step := 0 } lt(step, steps) { step := add(step, 1) } {
-                        let pos := add(digit, step)
-                        mstore(0x20, or(
-                            and(chainAdrs, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000FFFFFFFF),
-                            shl(32, pos)
-                        ))
+                        mstore(0x20, or(chainBase, shl(32, add(digit, step))))
                         mstore(0x40, val)
                         val := and(keccak256(0x00, 0x60), N_MASK)
                     }
@@ -151,9 +152,10 @@ contract SphincsC7Asm {
                         and(treeAdrs, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0000000000000000),
                         or(shl(32, add(h, 1)), parentIdx)
                     ))
-                    let bit := and(mIdx, 1)
-                    mstore(0x40, xor(merkleNode, mul(xor(merkleNode, sibling), bit)))
-                    mstore(0x60, xor(sibling, mul(xor(sibling, merkleNode), bit)))
+                    // Branchless Merkle swap (Solady pattern)
+                    let s := shl(5, and(mIdx, 1))
+                    mstore(xor(0x40, s), merkleNode)
+                    mstore(xor(0x60, s), sibling)
                     merkleNode := and(keccak256(0x00, 0x80), N_MASK)
                     mIdx := parentIdx
                 }
