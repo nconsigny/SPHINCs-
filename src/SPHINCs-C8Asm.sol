@@ -1,0 +1,173 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+/// @title SphincsC8Asm — Stateless SPHINCS+ C8 verifier (shared, Yul-optimized)
+/// @dev C8: h=20 d=2 a=13 k=12 w=16 l=32 target_sum=162 sig=3848
+///      Domain-separated H_msg (160 bytes). Branchless Merkle swap, hoisted chain address.
+contract SphincsC8Asm {
+
+    function verify(bytes32 pkSeed, bytes32 pkRoot, bytes32 message, bytes calldata sig)
+        external pure returns (bool valid)
+    {
+        assembly ("memory-safe") {
+            let N_MASK := 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000000000000000000000000000
+
+            if iszero(eq(sig.length, 3848)) {
+                mstore(0x00, 0x08c379a000000000000000000000000000000000000000000000000000000000)
+                mstore(0x04, 0x20)
+                mstore(0x24, 18)
+                mstore(0x44, "Invalid sig length")
+                revert(0x00, 0x64)
+            }
+
+            let seed := pkSeed
+            let root := pkRoot
+            mstore(0x00, seed)
+
+            // H_msg (domain-separated, 160 bytes)
+            let R := and(calldataload(sig.offset), N_MASK)
+            mstore(0x20, root)
+            mstore(0x40, R)
+            mstore(0x60, message)
+            mstore(0x80, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
+            let digest := keccak256(0x00, 0xA0)
+
+            // htIdx = (digest >> 156) & (2^20-1)
+            let htIdx := and(shr(156, digest), 0xFFFFF)
+
+            // FORS+C (K=12, A=13)
+            let dVal := digest
+            // Forced-zero: last index (i=11) at bits 143..155
+            if and(shr(143, dVal), 0x1FFF) { revert(0, 0) }
+
+            let sigBase := sig.offset
+            // K-1=11 normal trees
+            for { let i := 0 } lt(i, 11) { i := add(i, 1) } {
+                let treeIdx := and(shr(mul(i, 13), dVal), 0x1FFF) // 13-bit indices
+                let secretVal := and(calldataload(add(sigBase, add(16, shl(4, i)))), N_MASK)
+                let leafAdrs := or(shl(128, 3), or(shl(96, i), treeIdx))
+                mstore(0x20, leafAdrs)
+                mstore(0x40, secretVal)
+                let node := and(keccak256(0x00, 0x60), N_MASK)
+
+                let treeAdrsBase := or(shl(128, 3), shl(96, i))
+                let pathIdx := treeIdx
+                // AUTH_START=208, auth per tree = 13*16 = 208
+                let authPtr := add(sigBase, add(208, mul(i, 208)))
+
+                // Walk A=13 auth path levels
+                for { let h := 0 } lt(h, 13) { h := add(h, 1) } {
+                    let sibling := and(calldataload(add(authPtr, shl(4, h))), N_MASK)
+                    let parentIdx := shr(1, pathIdx)
+                    mstore(0x20, or(treeAdrsBase, or(shl(32, add(h, 1)), parentIdx)))
+                    // Branchless Merkle swap
+                    let s := shl(5, and(pathIdx, 1))
+                    mstore(xor(0x40, s), node)
+                    mstore(xor(0x60, s), sibling)
+                    node := and(keccak256(0x00, 0x80), N_MASK)
+                    pathIdx := parentIdx
+                }
+                mstore(add(0x80, shl(5, i)), node)
+            }
+
+            // Last tree (forced-zero)
+            {
+                let lastSecret := and(calldataload(add(sigBase, add(16, shl(4, 11)))), N_MASK) // 16+11*16=192
+                mstore(0x20, or(shl(128, 3), shl(96, 11)))
+                mstore(0x40, lastSecret)
+                // 0x80 + 11*0x20 = 0x80 + 0x160 = 0x1E0
+                mstore(0x1E0, and(keccak256(0x00, 0x60), N_MASK))
+            }
+
+            // Compress 12 roots: keccak256(seed || rootsAdrs || 12 roots)
+            // = 32 + 32 + 12*32 = 448 = 0x1C0
+            mstore(0x20, shl(128, 4))
+            for { let i := 0 } lt(i, 12) { i := add(i, 1) } {
+                mstore(add(0x40, shl(5, i)), mload(add(0x80, shl(5, i))))
+            }
+            let forsPk := and(keccak256(0x00, 0x1C0), N_MASK)
+
+            // Hypertree (D=2, subtree_h=10)
+            let currentNode := forsPk
+            let idxTree := htIdx
+            let sigOff := 2496 // HT_START
+
+            for { let layer := 0 } lt(layer, 2) { layer := add(layer, 1) } {
+                let idxLeaf := and(idxTree, 0x3FF) // 2^10 - 1
+                idxTree := shr(10, idxTree)
+
+                let wotsAdrs := or(shl(224, layer), or(shl(160, idxTree), shl(96, idxLeaf)))
+                // countOff = sigOff + l*N = sigOff + 512
+                let countOff := add(sigOff, 512)
+                let count := shr(224, calldataload(add(sigBase, countOff)))
+
+                mstore(0x20, wotsAdrs)
+                mstore(0x40, currentNode)
+                mstore(0x60, count)
+                let d := keccak256(0x00, 0x80)
+
+                // Validate digit sum = 162
+                let digitSum := 0
+                for { let ii := 0 } lt(ii, 32) { ii := add(ii, 1) } {
+                    digitSum := add(digitSum, and(shr(shl(2, ii), d), 0xF))
+                }
+                if iszero(eq(digitSum, 162)) { revert(0, 0) }
+
+                // 32 WOTS chains (w=16, same as C6 but target_sum=162)
+                let wotsPtr := add(sigBase, sigOff)
+                for { let i := 0 } lt(i, 32) { i := add(i, 1) } {
+                    let digit := and(shr(shl(2, i), d), 0xF)
+                    let steps := sub(15, digit)
+                    let val := and(calldataload(add(wotsPtr, shl(4, i))), N_MASK)
+                    let chainBase := and(
+                        or(wotsAdrs, shl(64, i)),
+                        0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000FFFFFFFF
+                    )
+
+                    for { let step := 0 } lt(step, steps) { step := add(step, 1) } {
+                        mstore(0x20, or(chainBase, shl(32, add(digit, step))))
+                        mstore(0x40, val)
+                        val := and(keccak256(0x00, 0x60), N_MASK)
+                    }
+                    mstore(add(0x80, shl(5, i)), val)
+                }
+
+                // PK compression: 32+32+32*32 = 1088 = 0x440
+                let pkAdrs := or(shl(224, layer), or(shl(160, idxTree), or(shl(128, 1), shl(96, idxLeaf))))
+                mstore(0x20, pkAdrs)
+                for { let i := 0 } lt(i, 32) { i := add(i, 1) } {
+                    mstore(add(0x40, shl(5, i)), mload(add(0x80, shl(5, i))))
+                }
+                let wotsPk := and(keccak256(0x00, 0x440), N_MASK)
+
+                // Merkle auth path (10 levels)
+                let authOff := add(countOff, 4)
+                let treeAdrs := or(shl(224, layer), or(shl(160, idxTree), shl(128, 2)))
+                let merkleNode := wotsPk
+                let mIdx := idxLeaf
+                let merklePtr := add(sigBase, authOff)
+
+                for { let h := 0 } lt(h, 10) { h := add(h, 1) } {
+                    let sibling := and(calldataload(add(merklePtr, shl(4, h))), N_MASK)
+                    let parentIdx := shr(1, mIdx)
+                    mstore(0x20, or(
+                        and(treeAdrs, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0000000000000000),
+                        or(shl(32, add(h, 1)), parentIdx)
+                    ))
+                    let s := shl(5, and(mIdx, 1))
+                    mstore(xor(0x40, s), merkleNode)
+                    mstore(xor(0x60, s), sibling)
+                    merkleNode := and(keccak256(0x00, 0x80), N_MASK)
+                    mIdx := parentIdx
+                }
+
+                currentNode := merkleNode
+                sigOff := add(authOff, 160) // 10*16
+            }
+
+            valid := eq(currentNode, root)
+            mstore(0x00, valid)
+            return(0x00, 0x20)
+        }
+    }
+}

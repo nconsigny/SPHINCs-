@@ -37,20 +37,28 @@ SPHINCs-Asm (deployed once, stateless, pure)
 
 | File | Purpose |
 |---|---|
-| `SPHINCs-C6Asm.sol` | Shared C6 verifier: w=16, l=32, sig=3352 bytes, verify=156K gas |
-| `SPHINCs-C7Asm.sol` | Shared C7 verifier: w=8, l=43, sig=3704 bytes, verify=127K gas |
-| `SphincsAccount.sol` | ERC-4337 hybrid account (stores keys as immutables) |
+| `SPHINCs-C6Asm.sol` | Shared C6 verifier: h=24 w=16 l=32, verify=156K |
+| `SPHINCs-C7Asm.sol` | Shared C7 verifier: h=24 w=8 l=43, verify=127K |
+| `SPHINCs-C8Asm.sol` | Shared C8 verifier: h=20 w=16 l=32, verify=194K |
+| `SPHINCs-C9Asm.sol` | Shared C9 verifier: h=20 w=8 l=43, verify=117K |
+| `SPHINCs-C10Asm.sol` | Shared C10 verifier: h=18 w=8 l=43, verify=115K |
+| `SPHINCs-C11Asm.sol` | Shared C11 verifier: h=16 w=8 l=43, verify=116K |
+| `SphincsAccount.sol` | ERC-4337 hybrid account (keys in storage, rotatable) |
 | `SphincsAccountFactory.sol` | Deploys accounts (shared verifier in constructor) |
 | `SphincsFrameAccount.sol` | Solidity reference for EIP-8141 frame account |
 
 ### Variants
 
-| Variant | w | l | target_sum | Sig | Verify | 4337 | Frame |
-|---|---|---|---|---|---|---|---|
-| C6 | 16 | 32 | 240 | 3352 B | 156K | 333K | 232K |
-| **C7** | **8** | **43** | **151** | **3704 B** | **127K** | **312K** | **206K** |
+All W+C_F+C, n=128-bit, d=2, domain-separated H_msg (160 bytes).
 
-Both share: h=24, d=2, a=16, k=8, FORS+C, domain-separated H_msg (160 bytes).
+| Variant | h | a | k | w | swn | Sig | sign_h | Verify | Frame | 4337 | sec_20 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| C6 | 24 | 16 | 8 | 16 | 240 | 3352 B | 5.7M | 156K | 232K | 333K | 128 |
+| **C7** | **24** | **16** | **8** | **8** | **151** | **3704 B** | **4.3M** | **127K** | **210K** | **318K** | **128** |
+| C8 | 20 | 13 | 12 | 16 | 162 | 3848 B | 1.4M | 194K | 271K | 377K | 128 |
+| **C9** | **20** | **12** | **11** | **8** | **208** | **3816 B** | **1.3M** | **117K** | **195K** | **300K** | **112.6** |
+| C10 | 18 | 11 | 13 | 8 | 205 | 4008 B | 609K | 115K | 203K | 308K | 104.5 |
+| C11 | 16 | 11 | 13 | 8 | 203 | 3976 B | 292K | 116K | 202K | 308K | 86.1 |
 
 ### Off-chain Components
 

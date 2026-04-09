@@ -347,7 +347,7 @@ def main():
     p_send.add_argument("--to", required=True, help="Recipient address")
     p_send.add_argument("--value", default="0.001", help="Value in ETH")
     p_send.add_argument("--dev-key", default="0x" + DEV_KEY)
-    p_send.add_argument("--variant", default="c7", choices=["c6", "c7"])
+    p_send.add_argument("--variant", default="c7", choices=["c6", "c7", "c8", "c9", "c10", "c11"])
 
     args = parser.parse_args()
     if args.command == "deploy":

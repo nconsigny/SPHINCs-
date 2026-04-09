@@ -139,7 +139,7 @@ def main():
     parser.add_argument("--rpc", default="https://demo.eip-8141.ethrex.xyz/rpc")
     parser.add_argument("--dev-key", default="0x" + DEV_KEY)
     parser.add_argument("--shared-verifier", required=True)
-    parser.add_argument("--variant", default="c7", choices=["c6", "c7"])
+    parser.add_argument("--variant", default="c7", choices=["c6", "c7", "c8", "c9", "c10", "c11"])
     args = parser.parse_args()
 
     rpc = args.rpc

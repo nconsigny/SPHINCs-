@@ -53,12 +53,24 @@ No ECDSA — pure post-quantum. Keys are stored in EVM storage (not bytecode) to
 
 ## Variants
 
-| Variant | w | l | Sig size | Verify gas | 4337 total | Frame tx | Security |
-|---|---|---|---|---|---|---|---|
-| C6 | 16 | 32 | 3352 bytes | 156K | 333K | 232K | 128-bit @ 2^20 |
-| **C7** | **8** | **43** | **3704 bytes** | **127K** | **318K** | **210K** | **128-bit @ 2^20** |
+All variants use WOTS+C / FORS+C (ePrint 2025/2203), n=128-bit, d=2, domain-separated H_msg (160-byte hash).
 
-Both share: h=24, d=2, a=16, k=8 (FORS+C). C7 trades +352 bytes sig for 19% less compute (fewer chain hash steps). Domain-separated H_msg (160-byte hash).
+| Variant | h | a | k | w | l | swn | Sig | sign_h | Verify | Frame | 4337 | sec_14 | sec_16 | sec_18 | sec_20 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| C6 | 24 | 16 | 8 | 16 | 32 | 240 | 3352 B | 5.7M | 156K | 232K | 333K | 128 | 128 | 128 | 128 |
+| **C7** | **24** | **16** | **8** | **8** | **43** | **151** | **3704 B** | **4.3M** | **127K** | **210K** | **318K** | **128** | **128** | **128** | **128** |
+| C8 | 20 | 13 | 12 | 16 | 32 | 162 | 3848 B | 1.4M | 194K | 271K | 377K | 128 | 128 | 128 | 128 |
+| **C9** | **20** | **12** | **11** | **8** | **43** | **208** | **3816 B** | **1.3M** | **117K** | **195K** | **300K** | **128** | **128** | **121.6** | **112.6** |
+| C10 | 18 | 11 | 13 | 8 | 43 | 205 | 4008 B | 609K | 115K | 203K | 308K | 128 | 128 | 118.3 | 104.5 |
+| C11 | 16 | 11 | 13 | 8 | 43 | 203 | 3976 B | 292K | 116K | 202K | 308K | 128 | 118.3 | 104.5 | 86.1 |
+
+- **sign_h**: keccak256 calls during signing (determines signer speed)
+- **sec_N**: security bits at 2^N signatures per key
+- **Verify**: pure verifier gas (Foundry `gasleft()` measurement)
+- **Frame**: total EIP-8141 frame tx gas (ethrex)
+- **4337**: total `handleOps` tx gas (Sepolia)
+
+C7 is the best gas-efficient variant with full 128-bit security at 2^20 signatures. C9 offers 22% lower frame gas but requires key rotation before 2^16 signatures to maintain 128-bit security.
 
 ## Key Derivation
 
@@ -87,30 +99,29 @@ cargo test --release -- --ignored  # 9/9 tests
 
 ## Deployed Contracts & Transactions
 
+EntryPoint v0.9: `0x433709009B8330FDa32311DF1C2AFA402eD8D009` (Sepolia)
+
 ### Sepolia (ERC-4337 Hybrid)
 
-| Contract | Address |
-|---|---|
-| Shared C7 Verifier | [`0x694C0a...`](https://sepolia.etherscan.io/address/0x694C0a72290FEd14c3641E0975F8d0939F84ee23) |
-| C7 Account | [`0x8b8d01...`](https://sepolia.etherscan.io/address/0x8b8d01b7c553a3a0267eb646ad8b68513457c144) |
-| EntryPoint v0.9 | `0x433709009B8330FDa32311DF1C2AFA402eD8D009` |
-
-| Description | Gas | Verify | Tx |
-|---|---|---|---|
-| C7 real ETH transfer (4337 hybrid) | 318K | 127K | [`0xced796ed...`](https://sepolia.etherscan.io/tx/0xced796ed90b82006ecedf896b4b629118c95545b307542fd26a891a367bd3f95) |
+| Variant | Verifier | Account | Gas | Tx |
+|---|---|---|---|---|
+| C7 | [`0x694C0a...`](https://sepolia.etherscan.io/address/0x694C0a72290FEd14c3641E0975F8d0939F84ee23) | [`0x8b8d01...`](https://sepolia.etherscan.io/address/0x8b8d01b7c553a3a0267eb646ad8b68513457c144) | 318K | [`0xced796ed...`](https://sepolia.etherscan.io/tx/0xced796ed90b82006ecedf896b4b629118c95545b307542fd26a891a367bd3f95) |
+| C8 | [`0x9DF5b4...`](https://sepolia.etherscan.io/address/0x9DF5b45624752E0D87b2DBCA6B07E8cC977be8B2) | [`0xdD58f3...`](https://sepolia.etherscan.io/address/0xdD58f35c520914fd9aefCd492d8577700Ef0A9a1) | 377K | [`0x748e2aed...`](https://sepolia.etherscan.io/tx/0x748e2aed29608a15f1b2a5d43cb0f5d66553fc32980ece366edd282f36361eac) |
+| C9 | [`0x18F005...`](https://sepolia.etherscan.io/address/0x18F005EECd41624644AA364bA8857258FEB3C26D) | [`0xA94111...`](https://sepolia.etherscan.io/address/0xA941116763AE386a50133c5af40356c9D93b2978) | 300K | [`0x8366513b...`](https://sepolia.etherscan.io/tx/0x8366513b096ee53dd1cb105363ab21a52267dd966b822b4bb2cf5492abf1550f) |
+| C10 | [`0x1500ad...`](https://sepolia.etherscan.io/address/0x1500ad392631CFe002c55094e38A280Bb0C6129f) | [`0xa46790...`](https://sepolia.etherscan.io/address/0xa4679058B95cac5112D3b25AA7086d4fe1712f62) | 308K | [`0x724c1b99...`](https://sepolia.etherscan.io/tx/0x724c1b99a747aeb636e93eb11636003dc453da15b2b6f24bec3f5267393633d7) |
+| C11 | [`0xC25ef5...`](https://sepolia.etherscan.io/address/0xC25ef566884DC36649c3618EEDF66d715427Fd74) | [`0x3C3b0c...`](https://sepolia.etherscan.io/address/0x3C3b0c3498E5ed9350F6fBFA0Ef8dC55f524eA50) | 308K | [`0x9fba169c...`](https://sepolia.etherscan.io/tx/0x9fba169ca76b6712586e44e1a4a2d0407b8b8b9ce767272a193e41a756260b74) |
 
 ### ethrex Testnet (EIP-8141 Frame Tx — Pure PQ)
 
-| Contract | Address |
-|---|---|
-| Shared C7 Verifier | [`0xf953b3...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xf953b3A269d80e3eB0F2947630Da976B896A8C5b) |
-| C7 Frame Account (v2) | [`0xAA292E...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xAA292E8611aDF267e563f334Ee42320aC96D0463) |
+Chain ID: 1729. VERIFY frame reads keys from storage, STATICCALLs shared verifier, APPROVEs. No ECDSA.
 
-| Description | Gas | Verify | Tx |
-|---|---|---|---|
-| C7 frame tx — pure PQ (block 802432) | 210K | 135K | [`0xaf875b26...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0xaf875b2615b5c3610ea619b922588ee66338824b1e0e130112033f5a7904cf3e) |
-
-Chain ID: 1729. VERIFY frame reads keys from storage, runs SPHINCS+ C7 verification, SENDER frame executes. No ECDSA, pure post-quantum.
+| Variant | Verifier | Frame Account | Gas | Verify | Tx |
+|---|---|---|---|---|---|
+| C7 | [`0xf953b3...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xf953b3A269d80e3eB0F2947630Da976B896A8C5b) | [`0xAA292E...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xAA292E8611aDF267e563f334Ee42320aC96D0463) | 210K | 135K | [`0xaf875b26...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0xaf875b2615b5c3610ea619b922588ee66338824b1e0e130112033f5a7904cf3e) |
+| C8 | [`0xCace1b...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xCace1b78160AE76398F486c8a18044da0d66d86D) | [`0xD5ac45...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xD5ac451B0c50B9476107823Af206eD814a2e2580) | 271K | 194K | [`0x512e728d...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0x512e728db2408b2c470202c5ac7deeda3d3331b9b2683ec1136fdca4cd46d980) |
+| C9 | [`0xc0F115...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xc0F115A19107322cFBf1cDBC7ea011C19EbDB4F8) | [`0xc96304...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xc96304e3c037f81dA488ed9dEa1D8F2a48278a75) | 195K | 117K | [`0x393588ec...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0x393588eceeda4839371f103e16b10c5e2900416d7b194faee8478b6561792813) |
+| C10 | [`0xD0141E...`](https://demo.eip-8141.ethrex.xyz:8082/address/0xD0141E899a65C95a556fE2B27e5982A6DE7fDD7A) | [`0x07882A...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x07882Ae1ecB7429a84f1D53048d35c4bB2056877) | 203K | 122K | [`0x0a2571f8...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0x0a2571f8423ab4ec75e09623773b22ff91794a82d1b3db2d616b8af354730353) |
+| C11 | [`0x315575...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x3155755b79aA083bd953911C92705B7aA82a18F9) | [`0x5bf5b1...`](https://demo.eip-8141.ethrex.xyz:8082/address/0x5bf5b11053e734690269C6B9D438F8C9d48F528A) | 202K | 122K | [`0x053428f5...`](https://demo.eip-8141.ethrex.xyz:8082/tx/0x053428f530521a5c42c4d2406d1cfb8e07baefa0328c0e425045a3ba9317106b) |
 
 ## Setup
 

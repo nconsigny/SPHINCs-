@@ -1,0 +1,8 @@
+{
+  "seed": "0xce0e50b77328e8b0e8e2455c747f375100000000000000000000000000000000",
+  "root": "0x34294dbf47f5889dc082573ed8721d6300000000000000000000000000000000",
+  "variant": "c9",
+  "frame_account": "0xc96304e3c037f81dA488ed9dEa1D8F2a48278a75",
+  "shared_verifier": "0xc0F115A19107322cFBf1cDBC7ea011C19EbDB4F8",
+  "rpc": "https://demo.eip-8141.ethrex.xyz/rpc"
+}

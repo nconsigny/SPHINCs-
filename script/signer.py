@@ -48,6 +48,18 @@ VARIANTS = {
     "c7": {"h": 24, "d": 2, "k": 8, "a": 16, "m_max": 0, "scheme": "fors",
             "subtree_h": 12, "sig_size": 3704,
             "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 151, "w_mask": 0x7},
+    "c8": {"h": 20, "d": 2, "k": 12, "a": 13, "m_max": 0, "scheme": "fors",
+            "subtree_h": 10, "sig_size": 3848,
+            "w": 16, "log_w": 4, "l": 32, "len1": 32, "target_sum": 162, "w_mask": 0xF},
+    "c9": {"h": 20, "d": 2, "k": 11, "a": 12, "m_max": 0, "scheme": "fors",
+            "subtree_h": 10, "sig_size": 3816,
+            "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 208, "w_mask": 0x7},
+    "c10": {"h": 18, "d": 2, "k": 13, "a": 11, "m_max": 0, "scheme": "fors",
+            "subtree_h": 9, "sig_size": 4008,
+            "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 205, "w_mask": 0x7},
+    "c11": {"h": 16, "d": 2, "k": 13, "a": 11, "m_max": 0, "scheme": "fors",
+            "subtree_h": 8, "sig_size": 3976,
+            "w": 8, "log_w": 3, "l": 43, "len1": 43, "target_sum": 203, "w_mask": 0x7},
 }
 
 # ============================================================

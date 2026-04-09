@@ -243,7 +243,7 @@ def cmd_create(args):
     print(f"  pkSeed: {to_hex(seed)}")
     print(f"  pkRoot: {to_hex(root)}")
 
-    variant_num = {"c2": 2, "c6": 6, "c7": 7}[args.variant]
+    variant_num = {"c2": 2, "c6": 6, "c7": 7, "c8": 8, "c9": 9, "c10": 10, "c11": 11}[args.variant]
 
     # Compute counterfactual address
     factory = args.factory
@@ -310,22 +310,22 @@ def cmd_send(args):
     block_info = rpc_call(rpc, "eth_getBlockByNumber", ["latest", False])
     if block_info and "baseFeePerGas" in block_info:
         base_fee = hex_to_int(block_info["baseFeePerGas"])
-        max_priority_int = 2 * 10**9  # 2 gwei tip
-        max_fee_int = base_fee * 2 + max_priority_int
+        max_priority_int = 1 * 10**9  # 1 gwei tip
+        max_fee_int = base_fee + max_priority_int * 2
     else:
         max_fee_int = 50 * 10**9
         max_priority_int = 2 * 10**9
 
     # Pack gas fields
     # accountGasLimits = uint128(verificationGasLimit) || uint128(callGasLimit)
-    ver_gas = 2_000_000   # high to account for SPHINCS+ verification
-    call_gas = 100_000
+    ver_gas = 300_000   # SPHINCS+ verify ~110-190K + account wrapper overhead
+    call_gas = 35_000
     account_gas_limits = "0x" + (ver_gas.to_bytes(16, "big") + call_gas.to_bytes(16, "big")).hex()
 
     # gasFees = uint128(maxPriorityFeePerGas) || uint128(maxFeePerGas)
     gas_fees = "0x" + (max_priority_int.to_bytes(16, "big") + max_fee_int.to_bytes(16, "big")).hex()
 
-    pre_ver_gas = 200_000
+    pre_ver_gas = 100_000
 
     # Build UserOp with dummy signature for gas estimation
     user_op = {
@@ -395,7 +395,7 @@ def cmd_send(args):
     proc = subprocess.run(
         ["cast", "send", ENTRYPOINT_V09, calldata,
          "--rpc-url", rpc, "--private-key", "0x" + ecdsa_key,
-         "--gas-limit", "5000000"],
+         "--gas-limit", "500000"],
         capture_output=True, text=True, timeout=120,
     )
     if proc.returncode == 0:
@@ -435,7 +435,7 @@ def main():
     p_create = sub.add_parser("create", help="Create a new SPHINCS+ account")
     p_create.add_argument("--factory", required=True, help="Factory contract address")
     p_create.add_argument("--ecdsa-key", required=True, help="ECDSA private key (hex)")
-    p_create.add_argument("--variant", choices=["c2", "c6", "c7"], default="c2", help="SPHINCS+ variant")
+    p_create.add_argument("--variant", choices=["c2", "c6", "c7", "c8", "c9", "c10", "c11"], default="c2", help="SPHINCS+ variant")
 
     # send
     p_send = sub.add_parser("send", help="Send a UserOp")
@@ -443,12 +443,12 @@ def main():
     p_send.add_argument("--ecdsa-key", required=True, help="ECDSA private key (hex)")
     p_send.add_argument("--to", required=True, help="Recipient address")
     p_send.add_argument("--value", default="0.001", help="Value in ETH")
-    p_send.add_argument("--variant", choices=["c2", "c6", "c7"], default="c2", help="SPHINCS+ variant")
+    p_send.add_argument("--variant", choices=["c2", "c6", "c7", "c8", "c9", "c10", "c11"], default="c2", help="SPHINCS+ variant")
 
     # info
     p_info = sub.add_parser("info", help="Show account info")
     p_info.add_argument("--ecdsa-key", required=True, help="ECDSA private key (hex)")
-    p_info.add_argument("--variant", choices=["c2", "c6", "c7"], default="c2", help="SPHINCS+ variant")
+    p_info.add_argument("--variant", choices=["c2", "c6", "c7", "c8", "c9", "c10", "c11"], default="c2", help="SPHINCS+ variant")
 
     args = parser.parse_args()
 
