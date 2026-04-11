@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SPHINCs- is a research prototype implementing post-quantum Ethereum accounts using SPHINCS+ hash-based signatures. Supports ERC-4337 hybrid accounts (ECDSA + SPHINCS+) and EIP-8141 frame transaction accounts (pure PQ). **Not audited, not production-safe.**
+SPHINCs- is a research prototype implementing post-quantum Ethereum accounts using lightweight SPHINCS+ variants (SPHINCs- C6–C11) and JARDÍN (FORS+C compact path). Supports JARDÍN hybrid accounts (ECDSA + SPHINCs-), stateless ERC-4337 accounts, and EIP-8141 frame transaction accounts (pure PQ). **Not audited, not production-safe.**
 
 ## Build and Test Commands
 
@@ -23,7 +23,7 @@ pip install eth-account eth-abi requests pycryptodome
 
 ### Shared Verifier Model
 
-The SPHINCS+ verifier is deployed once and shared by all accounts. Each account stores its own keys and calls the shared verifier with keys as arguments.
+The SPHINCs- verifier is deployed once and shared by all accounts. Each account stores its own keys and calls the shared verifier with keys as arguments.
 
 ```
 SPHINCs-Asm (deployed once, stateless, pure)
@@ -46,10 +46,14 @@ SPHINCs-Asm (deployed once, stateless, pure)
 | `SphincsAccount.sol` | ERC-4337 hybrid account (keys in storage, rotatable) |
 | `SphincsAccountFactory.sol` | Deploys accounts (shared verifier in constructor) |
 | `SphincsFrameAccount.sol` | Solidity reference for EIP-8141 frame account |
+| `JardinForsCVerifier.sol` | JARDÍN FORS+C-only verifier: k=26 a=5, verify=~66K |
+| `JardinAccount.sol` | JARDÍN hybrid ECDSA + ERC-4337: Type 1 (C11) + Type 2 (FORS+C) |
+| `JardinAccountFactory.sol` | Deploys JARDÍN accounts (ECDSA owner + two verifier refs) |
+| `JardinFrameAccount.sol` | JARDÍN EIP-8141 frame account: pure PQ, rotatable keys |
 
 ### Variants
 
-All W+C_F+C, n=128-bit, d=2, domain-separated H_msg (160 bytes).
+All SPHINCs- variants use W+C_F+C, n=128-bit, d=2, domain-separated H_msg (160 bytes).
 
 | Variant | h | a | k | w | swn | Sig | sign_h | Verify | Frame | 4337 | sec_20 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -60,9 +64,39 @@ All W+C_F+C, n=128-bit, d=2, domain-separated H_msg (160 bytes).
 | C10 | 18 | 11 | 13 | 8 | 205 | 4008 B | 609K | 115K | 203K | 308K | 104.5 |
 | C11 | 16 | 11 | 13 | 8 | 203 | 3976 B | 292K | 116K | 202K | 308K | 86.1 |
 
+### JARDÍN (Judicious Authentication from Random-subset Domain-separated Indexed Nodes)
+
+Hybrid ECDSA + compact FORS+C account with stateless C10 fallback. Q_MAX=32 leaves per slot.
+
+```
+C10 Verifier (existing)          JardinForsCVerifier (NEW)
+    ↑ verify(...)                     ↑ verifyForsCUnbalanced(...)
+    │                                 │
+    └── Type 1 (ECDSA+C10) ──────────┘── Type 2 (ECDSA+FORS+C)
+                      │
+                 JardinAccount (ERC-4337, hybrid)
+                 ├── owner (ECDSA signer, rotatable)
+                 ├── masterPkSeed, masterPkRoot (C10 identity)
+                 ├── slots: mapping(H(r) → H(subPkSeed,subPkRoot))
+                 └── Type 1: device registration + C10 fallback
+                     Type 2: FORS+C compact (every subsequent tx)
+```
+
+| Event | Sig size | 4337 gas | Frequency |
+|---|---|---|---|
+| Device registration (Type 1) | 4,138 B | 323K | Once per 32 txs |
+| Compact q=1 (Type 2) | 2,598 B | 174K | Every tx |
+| Compact q=32 (Type 2) | 3,094 B | 189K | Last before rotation |
+| Re-registration (Type 1) | 4,138 B | 289K | New slot |
+
+FORS+C variant 2: k=26, a=5, n=16B (128-bit), Q_MAX=32. Keygen: ~79K hashes (~1s).
+No on-chain leaf counter — q derived from signature length. FORS+C tolerates r=2 at 105-bit.
+H_msg: 192-byte domain-separated hash (seed||root||R||msg||counter||domain).
+
 ### Off-chain Components
 
 - `script/signer.py` — Python signer (c2/c6/c7 variants)
+- `script/jardin_signer.py` — JARDÍN FORS+C signer (unbalanced tree + FORS+C)
 - `script/send_userop.py` — ERC-4337 UserOp builder
 - `script/frame_tx.py` — EIP-8141 frame tx builder
 - `script/deploy_frame_account.py` — Deploys v2 frame account (keys in bytecode)
@@ -70,7 +104,7 @@ All W+C_F+C, n=128-bit, d=2, domain-separated H_msg (160 bytes).
 
 ### Key Derivation
 
-BIP-39 mnemonic → HMAC-SHA512 → SPHINCS+ keys (quantum-safe path, independent from ECDSA).
+BIP-39 mnemonic → HMAC-SHA512 → SPHINCs- keys (quantum-safe path, independent from ECDSA).
 
 ### Gas Optimizations Applied
 

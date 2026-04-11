@@ -4,7 +4,7 @@
 
 > ## WARNING: RESEARCH PROTOTYPE — NOT FOR PRODUCTION USE
 >
-> This codebase is a scheme exploration for lightweight variants of SPHINCS+.
+> This codebase is a scheme exploration for lightweight variants of SPHINCS+ (called SPHINCs-).
 > It has **not been audited**, contains **no security guarantees**, and is
 > **not safe to use with real funds**. Cryptographic parameters, key derivation,
 > and contract logic have not been reviewed by any third party.
@@ -12,9 +12,158 @@
 
 ---
 
-Post-quantum signature verification on Ethereum using hash-based signatures (SPHINCS+ variants). Supports ERC-4337 hybrid accounts (ECDSA + SPHINCS+) and native EIP-8141 frame transaction accounts (pure PQ).
+Post-quantum signature verification on Ethereum using SPHINCs- — lightweight hash-based signatures derived from SPHINCS+. Supports JARDÍN hybrid accounts (ECDSA + SPHINCs-), stateless ERC-4337 accounts, and native EIP-8141 frame transaction accounts (pure PQ).
 
-## Architecture
+## JARDÍN — Compact + Stateless Hybrid Account
+
+**JARDÍN** (Judicious Authentication from Random-subset Domain-separated Indexed Nodes) combines an unbalanced FORS+C (few-time signatures) tree with a stateless SPHINCs- C11 fallback. Every transaction requires both ECDSA and a post-quantum signature. Normal operations use the compact FORS+C path (~174K gas, ~2.6 KB); device registration and emergency fallback use stateless C11 (~323K gas, ~4.1 KB).
+
+```
+C11 Verifier (stateless, shared)       JardinForsCVerifier (compact, shared)
+    ↑ verify(...)                           ↑ verifyForsCUnbalanced(...)
+    │                                       │
+    └──── Type 1 (ECDSA + C11) ────────────┘──── Type 2 (ECDSA + FORS+C)
+                       │
+                  JardinAccount (ERC-4337, hybrid)
+                  ├── owner (ECDSA, rotatable)
+                  ├── masterPkSeed, masterPkRoot (C11 identity)
+                  ├── slots: mapping(H(r) → H(subPkSeed, subPkRoot))
+                  ├── Type 1: device registration + C11 fallback (once per slot)
+                  └── Type 2: FORS+C compact path (every subsequent tx)
+```
+
+### FORS+C Parameters (Variant 2)
+
+| Parameter | Value |
+|-----------|-------|
+| k (FORS trees) | 26 |
+| a (tree height) | 5 (32 leaves per tree) |
+| n (hash output) | 16 bytes (128-bit) |
+| k×a (security bits) | 130 |
+| Q_MAX (leaves per slot) | 32 |
+| Keygen (D=32) | ~79K hashes (~1s Python) |
+
+### Signature Types
+
+**Stateless SPHINCS- (Type 1)** — ECDSA + Stateless C11 + optional sub-key registration:
+```
+[0x01][ecdsaSig 65B][r 32B][subPkSeed 16B][subPkRoot 16B][C11 sig ~3976B] = ~4,138 bytes
+```
+
+**SHRINCS FORS+C (Type 2)** — ECDSA + FORS+C compact via registered sub-key slot:
+```
+[0x02][ecdsaSig 65B][H(r) 32B][subPkSeed 16B][subPkRoot 16B][FORS+C sig] = ~2,598 bytes (q=1)
+```
+
+The FORS+C signature grows by 16 bytes per use (one unbalanced tree auth node): 2,598 B at q=1, 3,094 B at q=32. After Q_MAX uses, register a new slot via Type 1.
+
+### Key Derivation & The Random Slot `r`
+
+Everything derives from a single **24-word BIP-39 mnemonic**. The derivation splits into two independent quantum-safe paths:
+
+```
+BIP-39 mnemonic (24 words)
+    │
+    ├── HMAC-SHA512("sphincs-c11-v1", bip39_seed)
+    │       │
+    │       ├── masterPkSeed (16 bytes) ── on-chain, in JardinAccount
+    │       ├── masterPkRoot (16 bytes) ── on-chain, C11 hypertree root
+    │       └── masterSkSeed (32 bytes) ── secret, derives everything else
+    │
+    └── BIP-32 m/44'/60'/0'/0/0 ── ECDSA address (independent, standard Ethereum path)
+```
+
+The **on-chain identity is the contract address** (deterministic via CREATE2 from the factory). The master C11 key authenticates Type 1 signatures and can be rotated via `rotateMasterKeys()` — the account address stays the same.
+
+**The random `r`** is where FORS+C sub-keys come from. Each device (or slot rotation) generates a fresh 32-byte random `r` using its hardware RNG:
+
+```
+r = hardware_rng(32)                                    ← 2^256 space, no collision possible
+sub_sk_seed = HMAC-SHA512(masterSkSeed, r)              ← deterministic from master + r
+sub_pk_seed, sub_pk_root = FORS+C_keygen(sub_sk_seed)   ← unbalanced tree of 32 FORS+C keys
+```
+
+The contract stores `slots[keccak256(r)] = keccak256(subPkSeed, subPkRoot)`. The slot key is `H(r)`, not `r` itself — the raw `r` is only revealed once during registration (Type 1) and never reused. This means:
+
+- **`r` is ephemeral device state** — lost on backup restore, regenerated per device
+- **`H(r)` is the on-chain slot identifier** — maps to the sub-key commitment
+- **The master seed is the only backup** — 24 words recover the master key; each device generates its own `r`
+
+### Multi-Device Flow
+
+```
+WALLET CREATION (one-time):
+  1. Generate 24-word BIP-39 mnemonic
+  2. Derive master C11 keypair via HMAC-SHA512
+  3. Deploy JardinAccount(owner, masterPkSeed, masterPkRoot) > Gets an 
+
+DEVICE A (first use):
+  1. Derive master keys from seed
+  2. r_A = hardware_rng(32)                                    ← random, local to device
+  3. Derive FORS+C sub-key from HMAC(masterSkSeed, r_A)
+  4. Type 1 UserOp: C11 signs + registers slots[H(r_A)]       ← 323K gas, once
+  5. Type 2 UserOps: FORS+C signs at q=1,2,...,32              ← 174K gas, every tx
+  6. Slot exhausted → new r, Type 1 registers new slot         ← 289K gas, every 32 txs
+
+DEVICE B (independent, same seed):
+  1. Same master keys from same 24 words
+  2. r_B = hardware_rng(32)                                    ← different from r_A, P(collision) = 2^-256
+  3. Independent FORS+C sub-key from HMAC(masterSkSeed, r_B)
+  4. Type 1 registers slots[H(r_B)] — no coordination with Device A
+  5. Type 2 at its own q counter — fully independent
+
+DEVICE A LOST, restored on DEVICE C:
+  1. Enter 24 words → recovers master keys
+  2. r_C = hardware_rng(32)                                    ← new slot, old r_A is lost
+  3. Type 1 registers slots[H(r_C)] — orphaned slot H(r_A) is harmless
+  4. Type 2 resumes on new slot
+
+EMERGENCY (device has seed but no FORS+C state):
+  1. Type 1 with r = 0x00..0 (no registration flag)
+  2. Pure stateless C11 sig — works immediately, no slot needed
+  3. 323K gas, 4,138 bytes — expensive but always available
+```
+
+### Measured Gas (Sepolia, ERC-4337 handleOps)
+
+36 consecutive on-chain transactions with full slot exhaustion + re-registration:
+
+| Event | Sig Size | Gas | Frequency |
+|-------|----------|-----|-----------|
+| Device registration (Type 1) | 4,138 B | **323K** | Once per 32 txs |
+| Compact q=1 (Type 2) | 2,598 B | **174K** | Every tx |
+| Compact q=16 (Type 2) | 2,838 B | **181K** | |
+| Compact q=32 (Type 2) | 3,094 B | **189K** | Last before rotation |
+| Re-registration (Type 1) | 4,138 B | **289K** | New slot |
+| New slot q=1 (Type 2) | 2,598 B | **174K** | Back to compact |
+
+Gas per q increment: ~498 gas avg. Compact path saves **46%** gas vs stateless C11 at q=1, **42%** at q=32.
+
+### Security
+
+| Property | Value |
+|----------|-------|
+| Compact path r=1 | 128-bit (normal) |
+| Compact path r=2 (double-sign) | 105-bit (graceful degradation) |
+| Compact path r=5 | 72-bit |
+| Fallback (C11) at 2^18 sigs | 86-bit |
+| Hash function | keccak256 (native EVM) |
+| Post-quantum | Yes (hash-only security) |
+
+No on-chain leaf counter. The leaf index q is derived from the signature length. FORS+C's few-time nature tolerates accidental double-signing. Replay protection comes from the EntryPoint nonce (4337) or Frame protocol nonce.
+
+### Deployed (Sepolia)
+
+| Contract | Address |
+|----------|---------|
+| JARDÍN FORS+C Verifier | [`0xbf30042d...`](https://sepolia.etherscan.io/address/0xbf30042d23FAc4377021567CCf8152e611A7F9db) |
+| JARDÍN Account Factory | [`0xa6A947A3...`](https://sepolia.etherscan.io/address/0xa6A947A3A878EAF742179884c996cFE80cD8F5F9) |
+| JARDÍN Account (36 UserOps) | [`0x05B3aad9...`](https://sepolia.etherscan.io/address/0x05B3aad92B34BDD207F4305FC6100318F041F583) |
+| SPHINCs- C11 Verifier (shared) | [`0xC25ef566...`](https://sepolia.etherscan.io/address/0xC25ef566884DC36649c3618EEDF66d715427Fd74) |
+
+---
+
+## Stateless SPHINCs- Architecture (C6–C11)
 
 ### Shared Verifier Model
 
@@ -53,7 +202,7 @@ No ECDSA — pure post-quantum. Keys are stored in EVM storage (not bytecode) to
 
 ## Variants
 
-All variants use WOTS+C / FORS+C (ePrint 2025/2203), n=128-bit, d=2, domain-separated H_msg (160-byte hash).
+All SPHINCs- variants use WOTS+C / FORS+C (ePrint 2025/2203), n=128-bit, d=2, domain-separated H_msg (160-byte hash).
 
 | Variant | h | a | k | w | l | swn | Sig | sign_h | Verify | Frame | 4337 | sec_14 | sec_16 | sec_18 | sec_20 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -83,7 +232,7 @@ BIP-39 mnemonic (12 or 24 words)
     └──▶ BIP-32 m/44'/60'/0'/0/0 → ECDSA address (independent)
 ```
 
-SPHINCS+ and ECDSA are derived through independent paths — compromising one does not compromise the other.
+SPHINCs- and ECDSA are derived through independent paths — compromising one does not compromise the other.
 
 ## Signers
 
