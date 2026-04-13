@@ -25,7 +25,7 @@ FULL = (1 << 256) - 1
 K = 26        # FORS trees
 A = 5         # FORS tree height (2^5 = 32 leaves per tree)
 A_MASK = (1 << A) - 1  # 0x1F
-Q_MAX = 32
+Q_MAX = 58
 
 # Signature layout:
 #   R(32) + counter(4) + (K-1)*(secret N + auth A*N) + lastRoot(N)

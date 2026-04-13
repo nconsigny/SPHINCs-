@@ -95,7 +95,14 @@ The contract stores `slots[keccak256(r)] = keccak256(subPkSeed, subPkRoot)`. The
 WALLET CREATION (one-time):
   1. Generate 24-word BIP-39 mnemonic
   2. Derive master C11 keypair via HMAC-SHA512
-  3. Deploy JardinAccount(owner, masterPkSeed, masterPkRoot) > Gets an 
+  3. Deploy JardinAccount via factory → contract address is your on-chain identity
+
+     The address is deterministic (CREATE2):
+       address = keccak256(0xff ‖ factory ‖ salt ‖ initCodeHash)
+       salt    = keccak256(owner ‖ masterPkSeed ‖ masterPkRoot)
+
+     Same inputs always produce the same address, even before deployment.
+     Keys can be rotated later; the address never changes.
 
 DEVICE A (first use):
   1. Derive master keys from seed
@@ -145,8 +152,7 @@ Gas per q increment: ~498 gas avg. Compact path saves **46%** gas vs stateless C
 |----------|-------|
 | Compact path r=1 | 128-bit (normal) |
 | Compact path r=2 (double-sign) | 105-bit (graceful degradation) |
-| Compact path r=5 | 72-bit |
-| Fallback (C11) at 2^18 sigs | 86-bit |
+| Fallback (C11) at 2^14 sigs | 128-bit |
 | Hash function | keccak256 (native EVM) |
 | Post-quantum | Yes (hash-only security) |
 

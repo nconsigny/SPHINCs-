@@ -58,6 +58,9 @@ contract JardinForsCVerifier {
             // Sig body starts at offset 36 (after R=32 + counter=4)
             let forsBase := add(sigBase, 36)
 
+            // Hoist loop-invariant address components (seed already at 0x00 from H_msg)
+            let adrsForsCq := or(shl(128, 3), shl(64, q))
+
             for { let i := 0 } lt(i, 25) { i := add(i, 1) } {
                 // Extract 5-bit FORS index for tree i
                 let treeIdx := and(shr(mul(i, 5), dVal), 0x1F)
@@ -68,13 +71,12 @@ contract JardinForsCVerifier {
 
                 // Hash leaf: th(seed, leafAdrs, secret)
                 // leafAdrs: atype=3, kp=i, ci=q, ha=treeIdx
-                mstore(0x00, seed)
-                mstore(0x20, or(or(shl(128, 3), shl(96, i)), or(shl(64, q), treeIdx)))
+                mstore(0x20, or(or(adrsForsCq, shl(96, i)), treeIdx))
                 mstore(0x40, secretVal)
                 let node := and(keccak256(0x00, 0x60), N_MASK)
 
                 // Walk A=5 auth path levels
-                let treeAdrsBase := or(or(shl(128, 3), shl(96, i)), shl(64, q))
+                let treeAdrsBase := or(adrsForsCq, shl(96, i))
                 let pathIdx := treeIdx
                 let authPtr := add(treeOff, 16)
 
@@ -99,8 +101,7 @@ contract JardinForsCVerifier {
                 let lastRootOff := add(forsBase, 2400)
                 let lastRootVal := and(calldataload(lastRootOff), N_MASK)
                 // th(seed, leafAdrs(25, q, 0), lastRootVal)
-                mstore(0x00, seed)
-                mstore(0x20, or(or(shl(128, 3), shl(96, 25)), shl(64, q)))
+                mstore(0x20, or(adrsForsCq, shl(96, 25)))
                 mstore(0x40, lastRootVal)
                 // Store at slot 25: 0x80 + 25*32 = 0x80 + 0x320 = 0x3A0
                 mstore(0x3A0, and(keccak256(0x00, 0x60), N_MASK))
@@ -108,7 +109,7 @@ contract JardinForsCVerifier {
 
             // ── Compress 26 FORS roots ──
             // keccak256(seed || rootsAdrs || 26 roots) = 32+32+26*32 = 896 = 0x380
-            mstore(0x00, seed)
+            // seed still at 0x00 — never modified since H_msg
             // rootsAdrs: atype=4, ci=q
             mstore(0x20, or(shl(128, 4), shl(64, q)))
             for { let i := 0 } lt(i, 26) { i := add(i, 1) } {
@@ -119,12 +120,12 @@ contract JardinForsCVerifier {
             // ── Unbalanced tree auth path walk ──
             let unbNode := forsPk
             let authStart := add(sigBase, 2452)
+            let adrsUnbal := shl(128, 6) // hoisted atype=6
 
             // Step 0: auth[0] is LEFT sibling, unbNode is RIGHT
             {
                 let authNode := and(calldataload(authStart), N_MASK)
-                mstore(0x00, seed)
-                mstore(0x20, or(shl(128, 6), shl(32, sub(q, 1))))
+                mstore(0x20, or(adrsUnbal, shl(32, sub(q, 1))))
                 mstore(0x40, authNode)
                 mstore(0x60, unbNode)
                 unbNode := and(keccak256(0x00, 0x80), N_MASK)
@@ -134,7 +135,7 @@ contract JardinForsCVerifier {
             for { let j := 1 } lt(j, q) { j := add(j, 1) } {
                 let authNode := and(calldataload(add(authStart, shl(4, j))), N_MASK)
                 let depth := sub(sub(q, 1), j)
-                mstore(0x20, or(shl(128, 6), shl(32, depth)))
+                mstore(0x20, or(adrsUnbal, shl(32, depth)))
                 mstore(0x40, unbNode)
                 mstore(0x60, authNode)
                 unbNode := and(keccak256(0x00, 0x80), N_MASK)
