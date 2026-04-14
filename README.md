@@ -16,7 +16,24 @@ Post-quantum signature verification on Ethereum using SPHINCs- — lightweight h
 
 ## JARDÍN — Compact + Stateless Hybrid Account
 
-**JARDÍN** (Judicious Authentication from Random-subset Domain-separated Indexed Nodes) combines an unbalanced FORS+C (few-time signatures) tree with a stateless SPHINCs- C11 fallback. Every transaction requires both ECDSA and a post-quantum signature. Normal operations use the compact FORS+C path (~174K gas, ~2.6 KB); device registration and emergency fallback use stateless C11 (~323K gas, ~4.1 KB).
+**JARDÍN** (Judicious Authentication from Random-subset Domain-separated Indexed Nodes) is a two-lane post-quantum account:
+
+1. **Register once** — sign one expensive stateless SPHINCs- C11 signature to open a "slot" (a lane of 95 cheap signatures)
+2. **Use the lane** — every subsequent transaction uses a compact FORS+C few-time signature at ~49K verify gas, growing by ~500 gas per use
+3. **Lane exhausted?** — after 95 uses, register a new slot. The old lane is done; the new one starts fresh
+
+This gives you **95 cheap transactions for every 1 expensive registration**. A regular user rotating slots every 95 txs pays the stateless price only ~1% of the time.
+
+```
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  Type 1 (register)         Type 2 (compact, ×95)        Type 1 …  │
+  │  ████████████████           ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓          ████…    │
+  │  C11 stateless             FORS+C few-time               new slot  │
+  │  323K gas, once            117K–163K gas, every tx        289K gas  │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+Both ERC-4337 (hybrid ECDSA + PQ on Sepolia) and EIP-8141 frame transactions (pure PQ on ethrex) are supported. The frame path uses a 67-byte hand-optimized proxy with TXPARAM-aware APPROVE.
 
 ```
 C11 Verifier (stateless, shared)       JardinForsCVerifier (compact, shared)
