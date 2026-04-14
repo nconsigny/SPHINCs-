@@ -25,14 +25,13 @@ Post-quantum signature verification on Ethereum using SPHINCs- — lightweight h
 This gives you **95 cheap transactions for every 1 expensive registration**. A regular user rotating slots every 95 txs pays the stateless price only ~1% of the time. The stateless C11 fallback is always available — no slot needed, no state needed, just the 24-word seed.
 
 ```
-  Register          JARDÍN (FORS+C compact, x95)            Register
+1st Tx        95 Tx                                      2nd Tx
+Register     JARDÍN (FORS+C compact, x95)                Register
   ┌──────┐  ┌─────────────────────────────────────────┐  ┌──────┐
-  │ C11  │  │  q=1    q=2    q=3   ...   q=94   q=95 │  │ C11  │  ...
-  │ 235K │  │  117K   117K   118K  ...   163K   163K  │  │ 235K │
+  │ C11  │->│  q=1    q=2    q=3   ...   q=94   q=95  │->│ C11  │  ...
+  │ 235K │->│  117K   117K   118K  ...   163K   163K  │->│ 235K │
   └──────┘  └─────────────────────────────────────────┘  └──────┘
-                                                    ↕
-                     Stateless C11 fallback: always available (209K gas)
-  
+  Stateless C11 fallback: always available (209K gas)
   Gas numbers: EIP-8141 frame transactions (ethrex). ERC-4337 adds ~56K overhead.
 ```
 
