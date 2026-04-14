@@ -42,8 +42,8 @@ C11 Verifier (stateless, shared)       JardinForsCVerifier (compact, shared)
 | k×a (security bits) | 130 |
 | Q_MAX (leaves per slot) | 95 |
 | Keygen (D=95) | ~235K hashes (~2.3s Python) |
-| Pure Verify cost | 48K |
-| Frame transaction | 117K |
+| **Pure Verify cost** | **48K** |
+| **Frame transaction** | **117K** |
 | ERC 4337 | 173 K |
 
 ### Signature Types
