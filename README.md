@@ -16,7 +16,7 @@ Post-quantum signature verification on Ethereum using SPHINCs- — lightweight h
 
 ## JARDÍN — Compact + Stateless Hybrid Account
 
-**JARDÍN** (Judicious Authentication from Random-subset Domain-separated Indexed Nodes) is a two-lane post-quantum account. It uses the SPINCS- stateless scheme combined with another verifier which is a simple unbalanced FORS+C tree:
+**JARDÍN** (Judicious Authentication from Random-subset Domain-separated Indexed Nodes) is a post-quantum smart account. It uses the SPINCS- a stateless scheme combined with another verifier which is a simple unbalanced FORS+C tree on the "compact" lane. Together they form a multi lane architecture :
 
 1. **Register once** — sign one expensive stateless SPHINCs- C11 signature to open a "slot" (a lane of 95 cheap signatures)
 2. **Use the lane** — every subsequent transaction uses a compact FORS+C few-time signature at ~49K verify gas, growing by ~500 gas per use
