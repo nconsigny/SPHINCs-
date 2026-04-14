@@ -28,10 +28,12 @@ This gives you **95 cheap transactions for every 1 expensive registration**. A r
   Register          JARDÍN (FORS+C compact, x95)            Register
   ┌──────┐  ┌─────────────────────────────────────────┐  ┌──────┐
   │ C11  │  │  q=1    q=2    q=3   ...   q=94   q=95 │  │ C11  │  ...
-  │ 323K │  │  117K   117K   118K  ...   163K   163K  │  │ 289K │
+  │ 235K │  │  117K   117K   118K  ...   163K   163K  │  │ 235K │
   └──────┘  └─────────────────────────────────────────┘  └──────┘
                                                     ↕
                      Stateless C11 fallback: always available (209K gas)
+  
+  Gas numbers: EIP-8141 frame transactions (ethrex). ERC-4337 adds ~56K overhead.
 ```
 
 Both ERC-4337 (hybrid ECDSA + PQ on Sepolia) and EIP-8141 frame transactions (pure PQ on ethrex) are supported. The frame path uses a 67-byte hand-optimized proxy with TXPARAM-aware APPROVE.
