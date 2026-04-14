@@ -41,7 +41,7 @@ def load_ethrex_info():
 # ============================================================
 
 def make_keys():
-    entropy = keccak256(b"jardin_frame_test_v1")
+    entropy = keccak256(b"jardin_frame_v4_q95")
     seed, sk = derive_keys(entropy)
     cfg = VARIANTS["c11"]
     root = _build_hypertree_d2(seed, sk, cfg["subtree_h"], cfg)

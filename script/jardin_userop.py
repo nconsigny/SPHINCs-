@@ -36,8 +36,8 @@ from eth_account import Account
 
 ENTRYPOINT_V09 = "0x433709009B8330FDa32311DF1C2AFA402eD8D009"
 C11_VERIFIER = "0xC25ef566884DC36649c3618EEDF66d715427Fd74"
-FORSC_VERIFIER = "0xbf30042d23FAc4377021567CCf8152e611A7F9db"
-JARDIN_FACTORY = "0xa6A947A3A878EAF742179884c996cFE80cD8F5F9"
+FORSC_VERIFIER = "0xFAFcbEfa48795E3C05b2ee2Df305B8685A839d9E"
+JARDIN_FACTORY = "0xFF3cF63De35e5aa3382A2086b7E0C96031607d52"
 CHAIN_ID = 11155111
 
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".jardin_state.json")
@@ -123,7 +123,7 @@ def generate_master_c11_keys(entropy_int):
     eprint(f"  C11 pkRoot done: {time.time()-t0:.1f}s")
     return seed, sk_seed, pk_root
 
-def generate_sub_keys(master_sk_seed, q_max=32, slot_gen=1):
+def generate_sub_keys(master_sk_seed, q_max=95, slot_gen=1):
     """Generate JARDÍN sub-key from master secret. slot_gen differentiates key generations."""
     # Derive sub-key material from master
     sub_entropy = keccak256(to_b32(master_sk_seed) + b"jardin_device_" + str(slot_gen).encode())
@@ -231,7 +231,7 @@ def cmd_deploy():
     eprint(f"  ECDSA owner: {ecdsa_acct.address}")
 
     # Deterministic entropy from private key
-    entropy = keccak256(bytes.fromhex(ecdsa_key) + b"jardin_master_v2")
+    entropy = keccak256(bytes.fromhex(ecdsa_key) + b"jardin_master_v5_q95")
 
     # Generate master C11 keys
     master_seed, master_sk, master_root = generate_master_c11_keys(entropy)
@@ -239,7 +239,7 @@ def cmd_deploy():
     eprint(f"  masterPkRoot: {to_hex(master_root)[:18]}...")
 
     # Generate sub-keys
-    sub_seed, sub_sk, sub_root, fors_pks, spine, sent = generate_sub_keys(master_sk, q_max=32)
+    sub_seed, sub_sk, sub_root, fors_pks, spine, sent = generate_sub_keys(master_sk, q_max=95)
     eprint(f"  subPkSeed: {to_hex(sub_seed)[:18]}...")
     eprint(f"  subPkRoot: {to_hex(sub_root)[:18]}...")
 
@@ -293,7 +293,7 @@ def cmd_deploy():
         "sub_seed": to_hex(sub_seed),
         "sub_root": to_hex(sub_root),
         "r_slot": to_hex(r_slot),
-        "q_max": 32,
+        "q_max": 95,
         "next_q": 1,
         "slot_gen": 1,
     }
@@ -323,17 +323,17 @@ def cmd_type1():
 
     # Check if we need a fresh sub-key (tree exhausted or first registration)
     slot_gen = state.get("slot_gen", 1)
-    if state.get("next_q", 1) > state.get("q_max", 32):
+    if state.get("next_q", 1) > state.get("q_max", 95):
         slot_gen += 1
         eprint(f"  FORS+C tree exhausted — generating fresh sub-key (gen={slot_gen})...")
-        sub_seed, sub_sk, sub_root, _, _, _ = generate_sub_keys(master_sk, q_max=32, slot_gen=slot_gen)
+        sub_seed, sub_sk, sub_root, _, _, _ = generate_sub_keys(master_sk, q_max=95, slot_gen=slot_gen)
         r_slot = keccak256(to_b32(master_sk) + b"jardin_slot_r_" + str(slot_gen).encode())
         state["sub_seed"] = to_hex(sub_seed)
         state["sub_root"] = to_hex(sub_root)
         state["r_slot"] = to_hex(r_slot)
         state["next_q"] = 1
         state["slot_gen"] = slot_gen
-        state["q_max"] = 32
+        state["q_max"] = 95
         eprint(f"  New subPkRoot: {to_hex(sub_root)[:18]}...")
     else:
         eprint(f"  Using existing sub-key (gen={slot_gen})")
