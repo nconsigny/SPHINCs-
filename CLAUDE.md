@@ -66,37 +66,38 @@ All SPHINCs- variants use W+C_F+C, n=128-bit, d=2, domain-separated H_msg (160 b
 
 ### JARDÍN (Judicious Authentication from Random-subset Domain-separated Indexed Nodes)
 
-Hybrid ECDSA + compact FORS+C account with stateless C10 fallback. Q_MAX=32 leaves per slot.
+Hybrid ECDSA + compact FORS+C account with stateless C11 fallback. Balanced
+Merkle tree of height h=7 commits Q_MAX=128 FORS+C instances per slot.
 
 ```
-C10 Verifier (existing)          JardinForsCVerifier (NEW)
-    ↑ verify(...)                     ↑ verifyForsCUnbalanced(...)
+C11 Verifier (existing)          JardinForsCVerifier (NEW)
+    ↑ verify(...)                     ↑ verifyForsC(...)
     │                                 │
-    └── Type 1 (ECDSA+C10) ──────────┘── Type 2 (ECDSA+FORS+C)
+    └── Type 1 (ECDSA+C11) ──────────┘── Type 2 (ECDSA+FORS+C)
                       │
                  JardinAccount (ERC-4337, hybrid)
                  ├── owner (ECDSA signer, rotatable)
-                 ├── masterPkSeed, masterPkRoot (C10 identity)
-                 ├── slots: mapping(H(r) → H(subPkSeed,subPkRoot))
-                 └── Type 1: device registration + C10 fallback
+                 ├── masterPkSeed, masterPkRoot (C11 identity)
+                 ├── slots: mapping(H(subPkSeed,subPkRoot) → 1)
+                 └── Type 1: device registration + C11 fallback
                      Type 2: FORS+C compact (every subsequent tx)
 ```
 
 | Event | Sig size | 4337 gas | Frequency |
 |---|---|---|---|
-| Device registration (Type 1) | 4,138 B | 323K | Once per 32 txs |
-| Compact q=1 (Type 2) | 2,598 B | 174K | Every tx |
-| Compact q=32 (Type 2) | 3,094 B | 189K | Last before rotation |
+| Device registration (Type 1) | 4,138 B | 323K | Once per 128 txs |
+| Compact (Type 2, any q) | 2,598 B (constant) | ~176K | Every tx |
 | Re-registration (Type 1) | 4,138 B | 289K | New slot |
 
-FORS+C variant 2: k=26, a=5, n=16B (128-bit), Q_MAX=32. Keygen: ~79K hashes (~1s).
-No on-chain leaf counter — q derived from signature length. FORS+C tolerates r=2 at 105-bit.
-H_msg: 192-byte domain-separated hash (seed||root||R||msg||counter||domain).
+FORS+C variant 2: k=26, a=5, n=16B (128-bit). Balanced Merkle h=7, Q_MAX=128.
+q encoded as 1-byte explicit field; no on-chain counter. FORS+C tolerates r=2
+at 105-bit. H_msg: 192-byte domain-separated hash
+(seed||root||R||msg||counter||domain).
 
 ### Off-chain Components
 
 - `script/signer.py` — Python signer (c2/c6/c7 variants)
-- `script/jardin_signer.py` — JARDÍN FORS+C signer (unbalanced tree + FORS+C)
+- `script/jardin_signer.py` — JARDÍN FORS+C signer (balanced h=7 tree + FORS+C)
 - `script/send_userop.py` — ERC-4337 UserOp builder
 - `script/frame_tx.py` — EIP-8141 frame tx builder
 - `script/deploy_frame_account.py` — Deploys v2 frame account (keys in bytecode)

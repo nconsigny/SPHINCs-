@@ -35,3 +35,9 @@ signer-wasm/target/
 signer-wasm/pkg/
 verity/.lake/
 verity-framework/
+
+.claude/
+.mcp.json
+NIST.FIPS.205.*
+jardin_stderr.txt
+

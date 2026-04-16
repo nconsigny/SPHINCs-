@@ -6,10 +6,13 @@ pragma solidity ^0.8.28;
 ///   VERIFY frame (STATICCALL-like, no writes): signature verification → APPROVE
 ///   SENDER frame (full access): slot registration + user execution
 ///
+/// Slot key is keccak256(subPkSeed, subPkRoot); registered slots store 1.
+/// The random `r` used to derive the sub-key never appears on-chain.
+///
 /// Frame tx layouts:
-///   Type 1 (register): VERIFY[sigHash||01||r||sub||C11sig] → SENDER[registerSlot(r,sub)]
-///   Type 2 (compact):  VERIFY[sigHash||02||H(r)||sub||FORSsig] → SENDER[execute(...)]
-///   Emergency:         VERIFY[sigHash||01||0||0||C11sig] → SENDER[execute(...)]
+///   Type 1 (register):  VERIFY[sigHash||01||sub||C11sig] → SENDER[registerSlot(sub)]
+///   Type 2 (compact):   VERIFY[sigHash||02||sub||FORSsig] → SENDER[execute(...)]
+///   Stateless fallback: VERIFY[sigHash||01||0||0||C11sig] → SENDER[execute(...)]
 ///
 /// The bytecode proxy DELEGATECALLs here, then APPROVEs if in VERIFY mode.
 contract JardinFrameAccount {
@@ -20,8 +23,8 @@ contract JardinFrameAccount {
     bytes32 public masterPkRoot;   // slot 3
     address public owner;          // slot 4
 
-    /// @notice Sub-key slots: keccak256(r) => keccak256(subPkSeed, subPkRoot)
-    mapping(bytes32 => bytes32) public slots;
+    /// @notice Sub-key slots: keccak256(subPkSeed, subPkRoot) => 1 (registered flag)
+    mapping(bytes32 => uint256) public slots;
 
     error InvalidSignatureType();
     error SlotAlreadyRegistered();
@@ -48,7 +51,7 @@ contract JardinFrameAccount {
     // ═══════════════════════════════════════════════════════════
 
     fallback(bytes calldata input) external returns (bytes memory) {
-        require(input.length > 97, InvalidSignatureType());
+        require(input.length > 65, InvalidSignatureType());
 
         bytes32 sigHash = bytes32(input[:32]);
         bytes calldata sig = input[32:];
@@ -59,26 +62,22 @@ contract JardinFrameAccount {
             (bool ok, bytes memory res) = c11Verifier.staticcall(
                 abi.encodeWithSignature(
                     "verify(bytes32,bytes32,bytes32,bytes)",
-                    masterPkSeed, masterPkRoot, sigHash, sig[65:]
+                    masterPkSeed, masterPkRoot, sigHash, sig[33:]
                 )
             );
             require(ok && res.length >= 32 && abi.decode(res, (bool)), "C11 verify failed");
 
         } else if (sigType == 0x02) {
             // Type 2: FORS+C compact — verify slot + signature
-            bytes32 key     = bytes32(sig[1:33]);
-            bytes16 subSeed = bytes16(sig[33:49]);
-            bytes16 subRoot = bytes16(sig[49:65]);
-
-            require(
-                keccak256(abi.encodePacked(subSeed, subRoot)) == slots[key],
-                UnregisteredSlot()
-            );
+            bytes16 subSeed = bytes16(sig[1:17]);
+            bytes16 subRoot = bytes16(sig[17:33]);
+            bytes32 key = keccak256(abi.encodePacked(subSeed, subRoot));
+            require(slots[key] != 0, UnregisteredSlot());
 
             (bool ok, bytes memory res) = forscVerifier.staticcall(
                 abi.encodeWithSignature(
-                    "verifyForsCUnbalanced(bytes32,bytes32,bytes32,bytes)",
-                    bytes32(subSeed), bytes32(subRoot), sigHash, sig[65:]
+                    "verifyForsC(bytes32,bytes32,bytes32,bytes)",
+                    bytes32(subSeed), bytes32(subRoot), sigHash, sig[33:]
                 )
             );
             require(ok && res.length >= 32 && abi.decode(res, (bool)), "FORS+C verify failed");
@@ -95,10 +94,10 @@ contract JardinFrameAccount {
     // ═══════════════════════════════════════════════════════════
 
     /// @notice Register a FORS+C sub-key slot (called in SENDER frame after Type 1 VERIFY)
-    function registerSlot(bytes32 r, bytes16 subSeed, bytes16 subRoot) external {
-        bytes32 key = keccak256(abi.encodePacked(r));
-        require(slots[key] == bytes32(0), SlotAlreadyRegistered());
-        slots[key] = keccak256(abi.encodePacked(subSeed, subRoot));
+    function registerSlot(bytes16 subSeed, bytes16 subRoot) external {
+        bytes32 key = keccak256(abi.encodePacked(subSeed, subRoot));
+        require(slots[key] == 0, SlotAlreadyRegistered());
+        slots[key] = 1;
     }
 
     /// @notice Execute arbitrary call (called in SENDER frame)

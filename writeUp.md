@@ -1,352 +1,310 @@
-# JARDÍN Design Decisions & Research Findings
+# JARDIN: Judicious Authentication from Randomized Domain-separated Indexed Nodes
 
-## 1. Motivation: Why JARDÍN?
+_This post builds on_ [_SPHINCs-: Efficient Stateless Post-Quantum Signature Verification on the EVM_](https://docs.fileverse.io/0x23e01d1f0c0bc7247ad18631f0d6d7ef78a3af82/28#key=kdkUKVWbzUtAOOe0NrHdJAgVEmarQ0cVlPAnypIInTOYnEleY9H0jX-3Bn98t1z5)_, which describes the underlying stateless signature scheme and its parameter space._
 
-The stateless SPHINCs- variants (C6–C11) achieve post-quantum security on Ethereum, but at a cost: **4,008 bytes** per signature and **308K gas** per 4337 UserOp for C10. Every single transaction pays the full stateless price — WOTS+C chains, FORS+C trees, and a two-layer hypertree walk — even though most users sign only a few times per key.
+* * *
 
-JARDÍN asks: **what if normal operations used a cheaper few-time scheme, and the expensive stateless path was reserved for rare events?**
 
-The answer is an unbalanced tree of FORS+C instances (the compact path) backed by a stateless SPHINCs- C11 fallback. The name — **Judicious Authentication from Random-subset Domain-separated Indexed Nodes** — reflects the core primitive: FORS (Forest of Random Subsets) with +C counter grinding and domain-separated tweakable hashing.
+## Abstract
 
----
+Most Ethereum accounts are secured by ECDSA, a signature scheme that will be broken by a sufficiently large quantum computer running Shor's algorithm. Recent resource estimates by Babbush et al. [1] suggest this threat may materialise sooner than previously assumed, creating an urgent need for post-quantum signature verification at the execution layer. Among the candidate families, hash-based signatures stand out for their conceptual simplicity and conservative security foundations: their security reduces entirely to the properties of hash functions, primitives that are well-understood and battle-tested, making them easy to reason about.
 
-## 2. Scheme Selection: SHRINCS → SHRINCS-F → JARDÍN
+[SPHINCs-](https://github.com/nconsigny/SPHINCs-) [2] adapts the NIST-standardised SLH-DSA scheme for the EVM, achieving the lowest known on-chain verification cost for PQ hash-based signatures. But stateless signing remains expensive: 4.3M keccak calls for C7, 292K for C11, reaching 390 seconds on constrained hardware wallets. Kudinov and Nick [3] proposed innovative hybrid designs (SHRINCS [4], SHRIMPS [5]) combining compact stateful signatures with a stateless SPHINCS+ fallback, but their compact path uses WOTS+C one-time signatures, which break catastrophically on reuse. A signature scheme that places catastrophic failure on the fault-resistance of a monotonic counter changes the security model of the signer in ways that are difficult to audit, particularly given that state rollback through fault injection remains a practical threat on secure elements [6].
 
-The design draws from three ideas in the literature:
+We present [JARDIN](https://github.com/nconsigny/SPHINCs-?tab=readme-ov-file#jard%C3%ADn--compact--stateless-hybrid-account) (Judicious Authentication from Random-subset Domain-separated Indexed Nodes), a two-tier architecture that combines SPHINCs-'s cheap EVM verification with a SHRINCS-style compact/stateless split, replacing WOTS+C with FORS+C few-time signatures in the compact path. FORS+C degrades under accidental reuse (degradation can be adapted to the signing budget), removing the critical dependency on perfect state management. The compact path uses a balanced Merkle tree of 128 FORS+C instances (k=26, a=5, 130-bit one-time security, h=7) with a stateless SPHINCs- C11 fallback. We leverage the persistent memory of the smart accounts by registering the compact path as slots in the memory with a SPHINCS- stateless signature. When deriving the compact path from the seed we add randomness `r` to each lane then we commit a slot with mapping `slots[H(subPkSeed, subPkRoot)] = 1`. Once the JARDIN lane is registered normal transactions use the compact path at 119K gas and 2.6 KB; device registration and emergency recovery use the stateless path at 235K gas and 4.1 KB. The leaf index q is encoded as a single byte in the signature, requiring no on-chain state. JARDIN supports unlimited independent devices from a single 24-word mnemonic with no inter-device coordination, and enforces anti-rollback leaf consumption via hardware burn-before-sign. We implement and measure the scheme on a constrained secure element hardware wallet (3-second compact signing versus 390 seconds for the full stateless path).
 
-**SHRINCS** (Nick, 2025): Combines a stateful unbalanced XMSS tree of WOTS+C one-time signatures with a stateless SPHINCS+ fallback. First signature is ~308 bytes (WOTS+C at depth 1), growing by 16 bytes per use. The fallback is invoked when state is lost (e.g. seed restored on a new device). Problem: WOTS+C is **strictly one-time** — reusing a leaf is catastrophic (full key recovery).
+* * *
 
-**SHRINCS-F** (this design's predecessor): Replaces WOTS+C in the unbalanced tree with **FORS+C few-time signatures**. FORS+C tolerates accidental reuse: at r=2 (same leaf signed twice), security degrades gracefully from 128 bits to ~105 bits, rather than collapsing entirely. This makes the scheme resilient to state corruption, device rollbacks, and hardware faults.
+## 1. The Problem JARDIN Solves
 
-**JARDÍN** (this implementation): Adds multi-device support via random slot IDs, hybrid ECDSA co-signing, and an ERC-4337/EIP-8141 dual account model. The key insight: each device generates an independent random `r`, derives its own FORS+C sub-key, and registers it on-chain via a single stateless C11 signature. Devices never coordinate.
+The companion post on SPHINCs- described how to get post-quantum verification down to 127K gas. But verification is only half the problem. The signer must also be practical.
 
----
+SPHINCs- C7 requires 4.3M keccak256 calls to sign. On a desktop at ~1M hashes/second, that is ~4 seconds, acceptable. On a constrained secure element (eg. the Ledger nano S+ with a ST33 Cortex-M0+, 48MHz, no hardware keccak), signing would take minutes. Even C11, the fastest variant at 292K hashes, takes 390 seconds (6.5 minutes).
 
-## 3. FORS+C Parameter Selection
+Linear interpolation from Ledger's SPHINCS+-128s benchmark (6 minutes 18 seconds for 2.0M hashes) puts C7 at 11~13 minutes and C11 at ~6.5 minutes on a comparable secure element. Our measured C11 time (390 seconds) is consistent with this estimate.
 
-### Variant 1 (initial): k=16, a=8
+JARDIN's contribution is showing that one does not need to run the full stateless scheme on every transaction. A JARDIN can be signed on constrained hardware in 3 seconds, and cost 48K gas to verify (full frame tx at 119K gas).
 
-The first implementation used k=16 FORS trees of height a=8 (256 leaves each):
-- k×a = 128 bits of security at r=1
-- Signature body: (k-1) × n × (1+a) + n = 15 × 16 × 9 + 16 = **2,212 bytes**
-- Verify: ~43K gas (Foundry gasleft measurement), ~174K total 4337 gas
-- Keygen per leaf: 16 trees × (256 secrets + 256 leaf hashes + 255 internal nodes) = **~12,273 keccak calls**
-- Keygen for D=32 leaves: 32 × 12,273 = **~393K hashes** (~4 seconds in Python)
+## 2. From one time to few time signatures
 
-**Problem**: 393K hashes for keygen is too slow for constrained hardware (hardware wallets, mobile devices). The bottleneck is the 256 leaves per FORS tree (2^8 = 256).
+The idea of combining a compact stateful path with a stateless fallback comes from Kudinov and Nick [3], who proposed SHRINCS [4] and SHRIMPS [5] as part of their work on hash-based signatures for Bitcoin. SHRINCS builds a stateful tree of WOTS+C one-time signatures. When the tree is exhausted or state is lost, the scheme falls back to a full stateless SPHINCS+ signature.
 
-### Variant 2 (final): k=26, a=5
+A WOTS+ signature reveals hash chain values at specific positions. If the same WOTS+ leaf signs two different messages, the attacker obtains chain values at two different positions per chain. For 43 chains, that is 43 pairs of revealed positions. The "slack" in the encoding space (valid message encodings whose digit positions all fall within the revealed ranges) can be enormous, potentially 2^40 or more forgeable messages.
 
-Switching to k=26, a=5 trades more FORS trees for shallower trees:
-- k×a = 130 bits of security at r=1 (slightly better than variant 1)
-- Signature body: 25 × 16 × 6 + 16 = **2,452 bytes** (+240 bytes vs variant 1)
-- Verify: ~49K gas (Foundry), ~174K total 4337 gas
-- Keygen per leaf: 26 trees × (32 secrets + 32 leaf hashes + 31 internal nodes) = **~2,470 keccak calls**
-- Keygen for D=32 leaves: 32 × 2,470 = **~79K hashes** (~1 second in Python)
+For a hardware wallet, state corruption is not hypothetical. Firmware updates, crashes during signing, power loss, device rollbacks, and flash memory faults are expected over the device lifetime. For a software signer it's even easier to imagine attacks that would confuse the state management. A scheme where any state glitch is catastrophic is hard to deploy.
 
-**5x faster keygen** at the cost of 240 extra signature bytes. The verify gas is nearly identical because the total operation count is similar: 25 × 6 = 150 ops (variant 2) vs 15 × 9 = 135 ops (variant 1), and calldata cost differences roughly cancel out.
+## 3. FORS+C in the Compact Path
 
-### Why not k=22, a=6 (variant 1 from the table)?
+The idea is straightforward, JARDIN replaces WOTS+C with FORS+C in the compact path. Each leaf of the Merkle tree is a FORS+C instance rather than a WOTS+C instance.
 
-Variant 1 (k=22, a=6) gives slightly smaller signatures (2,420 B) but keygen is 4K hashes per leaf — double variant 2. For D=32, that's 134K hashes vs 79K. The 48-byte signature saving doesn't justify the keygen cost on constrained devices.
+### 3.1 Why FORS tolerates reuse
 
-### Security comparison at r=2 (accidental double-signing)
+A FORS signature reveals k secret leaf values, one from each of k independent binary trees of height a (2^a leaves each). To forge a FORS signature, the attacker needs a message whose k required leaf indices all fall within the set of previously revealed leaves.
 
-| Variant | k | a | k×a | r=1 | r=2 | r=3 |
-|---------|---|---|-----|-----|-----|-----|
-| 1 (k=22, a=6) | 22 | 6 | 132 | 128 | 110 | 98 |
-| **2 (k=26, a=5)** | **26** | **5** | **130** | **128** | **105** | **90** |
-| Original (k=16, a=8) | 16 | 8 | 128 | 128 | 112 | 103 |
-
-Variant 2 has slightly lower r=2 security (105 vs 112 bits) due to fewer leaves per tree (32 vs 256). This is acceptable: 105 bits still requires ~2^105 work to forge.
-
----
-
-## 4. The Unbalanced Merkle Tree
-
-### Structure
-
-The unbalanced tree commits Q_MAX FORS+C public keys under a single root (subPkRoot). Each leaf is at a unique depth, so the auth path length encodes the leaf index:
+After γ previous signatures on the same FORS+C instance, the first k_open = 25 trees each have at most γ revealed leaves out of 2^a. The removed tree always opens leaf 0, contributing a fixed factor of 2^{-a'}. The forgery probability is:
 
 ```
-              root (depth 0)
-             /    \
-          spine[0]  PK[0]       q=1, auth=1 node (16 B)
-           /    \
-        spine[1]  PK[1]         q=2, auth=2 nodes (32 B)
-          ...
-        spine[D-2]  PK[D-2]     q=D-1, auth=D-1 nodes
-          /    \
-       sentinel  PK[D-1]        q=D, auth=D nodes
+p_γ       = 1 - (1 - 1/2^a)^γ
+P_forge   = p_γ^(k_open) * 2^(-a')
+security  = -log2(P_forge)
 ```
 
-The sentinel is a deterministic hash: `keccak256(seed || sk_seed || "jardin_sentinel")`. It ensures every q has a unique auth path length, allowing the verifier to derive q from `(sig.length - FORSC_BODY) / 16` without an explicit field.
+Using the standard generic-attack heuristic for FORS-style reuse, the conditional forgery probability for a reused compact-path instance is: P<sub>forge∣γ,q​</sub>≈p<sub>γ</sub><sup>25</sup>​⋅2<sup>−5</sup>
+This degrades gradually:
 
-### Internal hash count
+| Reuses (y) | Security for (k=26, a=5) | Security for (k=16, a=8) |
+| ---------- | ------------------------ | ------------------------ |
+| 1          | 130-bit                  | 128-bit                  |
+| 2          | 105-bit                  | 112-bit                  |
+| 3          | 91-bit                   | 103-bit                  |
+| 5          | 74-bit                   | 91-bit                   |
 
-The tree requires D internal th_pair hashes (D-1 spine nodes + 1 root), plus 1 sentinel computation. For D=32: **33 hashes** — negligible compared to the ~79K FORS keygen hashes.
+At r=2 (one accidental double-sign), the attacker still needs 2^105 work to forge with our parameters. Compare WOTS+C, where r=2 potentially enables complete key recovery.
 
-### Why not remove the sentinel?
+### 3.2 Why FORS signatures are larger
 
-We explored removing the sentinel to save 1 hash and 16 bytes on the last signature. Without it, the bottom two leaves (q=D-1 and q=D) share the same depth, producing auth paths of equal length. The verifier can no longer derive q from the signature.
+WOTS+ chain values need no Merkle proof: the hash chain itself is the proof (the verifier hashes forward to the public value). FORS tree leaves require Merkle auth paths: a * n bytes per tree. With k*a >= 128 for 128-bit security, the minimum FORS+C signature body is approximately k*a*n = 2,048 bytes at n=16.
 
-This matters because q is used in the FORS address domain separation: `make_adrs(0, 0, FORS_TREE, tree_idx, q, height, node_idx)`. Without knowing q, the verifier can't compute the correct tweakable hash addresses.
+This is the fundamental size floor. JARDIN's compact path signatures (2,598 B constant) are larger than SHRINCS's (~308 B at q=1), but the graceful degradation under reuse is worth the cost.
 
-Options considered:
-1. **Add q as an explicit byte** — +1 byte per signature, but changes the signature layout
-2. **Remove q from FORS addresses** — weaker domain separation (still secure, but less clean)
-3. **Keep the sentinel** — 1 extra hash in keygen, 16 extra bytes on the very last signature only
+### 3.3 Algorithms: from forest (FORS) to JARDIN
 
-We kept the sentinel. The cost is negligible (1/79,000 of keygen, 16/2,468 of the last sig only), and it preserves the clean property that q is always self-evident from the signature.
+This section describes how JARDIN adapts the standard FORS algorithms from SLH-DSA (FIPS 205 [7], Section 8) and adds two new layers: the FORS+C forced-zero optimisation from Kudinov and Nick [3], and the balanced Merkle tree.
 
----
+**Standard FORS** (FIPS 205 [7], Algorithms 14 to 17). A FORS instance consists of k independent Merkle trees, each of height a with t = 2^a leaves. Each leaf is the hash of a pseudorandom secret value derived from SK.seed via `fors_skGen` (FIPS 205, Algorithm 14), which calls PRF with a `FORS_PRF`-typed address encoding the leaf's position. The `fors_node` function (FIPS 205, Algorithm 15) recursively builds Merkle subtrees: leaf nodes hash the secret via F(PK.seed, ADRS, sk), and internal nodes hash their two children via H(PK.seed, ADRS, lnode || rnode).
 
-## 5. The Random Slot `r`
+Signing with `fors_sign` (FIPS 205 Algorithm 16) splits the k*a-bit message digest `md` into k chunks of a bits via `base_2b(md, a, k)`, producing k leaf indices. For each tree i, the signature includes the secret value at position i * 2^a + indices[i] and the a-node authentication path from that leaf to the tree root.
 
-### Design
+Verification (`fors_pkFromSig`, Algorithm 17) reconstructs each tree root from the revealed secret and auth path, walking bottom-up through the Merkle tree. The k reconstructed roots are compressed into a single FORS public key via T_k(PK.seed, forspkADRS, roots). This is analogous to `ecrecover` in ECDSA: the verifier does not receive the public key directly but reconstructs it from the signature and checks it against a stored commitment. In JARDIN, the contract stores `keccak256(subPkSeed, subPkRoot)` and the verifier reconstructs subPkRoot via this same process.
 
-Each FORS+C sub-key is bound to a random 32-byte slot ID `r`:
-- `r = hardware_rng(32)` — generated on the device, 2^256 collision space
-- `sub_sk_seed = HMAC-SHA512(masterSkSeed, r)` — deterministic sub-key derivation
-- On-chain: `slots[keccak256(r)] = keccak256(subPkSeed, subPkRoot)`
+**FORS+C (Kudinov and Nick [3]).** The +C optimisation forces the last tree's leaf index to zero by grinding a 4-byte counter in the message hash. JARDIN derives a dedicated randomiser secret during slot creation:
 
-The contract stores `H(r)`, not `r` itself. The raw `r` is revealed once during Type 1 registration and never reused. This design enables:
-
-1. **Multi-device independence**: Device A uses `r_A`, Device B uses `r_B`. Both register independently via Type 1. Their FORS+C trees are completely separate — no coordination needed.
-
-2. **Stateless backup**: The 24-word seed recovers the master key. A restored device generates a fresh `r_C`, registers a new slot, and starts signing. The old slot `H(r_A)` is orphaned but harmless.
-
-3. **Emergency fallback**: Setting `r = 0x00..0` in Type 1 skips registration entirely. The C11 signature authenticates the action without creating a slot.
-
-### Why not derive `r` from the seed?
-
-If `r` were deterministic from the seed (e.g. `r = HMAC(masterSkSeed, device_index)`), two devices restoring from the same seed would generate the same `r` and the same FORS+C sub-key. They'd both sign at the same q values, degrading FORS+C security (r=2, then r=3, etc.). Random `r` from hardware RNG avoids this entirely — collision probability is 2^-256.
-
----
-
-## 6. On-Chain Leaf Counter: Why We Removed It
-
-### The three options from the spec
-
-**Option A** — EntryPoint nonce key: Use `H(r)` truncated to 192 bits as the ERC-4337 nonce key. The EntryPoint auto-tracks the sequence. Zero storage cost, but only works in 4337 (not Frame transactions).
-
-**Option B** — Contract storage: `mapping(bytes32 => uint32) public nextLeaf`. Updated on each Type 2 verification. Costs ~5K gas per sig (warm SSTORE). Works everywhere.
-
-**Option C** — Signature-embedded: q is derived from the auth path length. The contract doesn't track state; it just verifies whatever the signer provides.
-
-### Why we chose Option C (no counter)
-
-The counter doesn't add security — it's a convenience wrapper. The argument:
-
-1. **The counter prevents double-signing the same leaf q.** But the state corruption that causes double-signing happens **off-chain**. If the signer's device rolls back to a state before it queried the counter, it would still sign with the wrong q. The counter only helps if the signer actively queries it — which it could also do by reading past transaction history.
-
-2. **FORS+C tolerates double-signing by design.** At r=2 (same leaf used twice), security degrades to 105 bits. At r=3, to 90 bits. This graceful degradation is the entire point of choosing FORS+C over WOTS+C. A counter would be defense-in-depth against a threat the scheme is already designed to handle.
-
-3. **Protocol-level replay protection exists.** The EntryPoint nonce (4337) or Frame nonce prevents the same signature from being submitted twice. The only risk is the signer **creating two different signatures** for the same q — which is an off-chain state management problem, not an on-chain enforcement problem.
-
-4. **The counter costs 5K gas per signature.** For a scheme optimized to save ~150K gas per tx over the stateless path, spending 5K on a counter that doesn't add security is a meaningful fraction of the savings.
-
-We stripped the counter. The contract is fully stateless for Type 2 verification. The signer tracks q locally and can recover it from on-chain transaction history if needed.
-
----
-
-## 7. C10 → C11: Hardware Wallet Compatibility
-
-### The problem with C10
-
-C10 (h=18, d=2, subtree_h=9) requires 609K keccak calls to sign. On a hardware wallet computing ~10K keccak/s, that's ~60 seconds per Type 1 signature. Unusable.
-
-### Why C11
-
-C11 (h=16, d=2, subtree_h=8) requires only 292K keccak calls — **2x faster than C10**. The tradeoff:
-
-| | C10 | C11 |
-|---|---|---|
-| Signing cost | 609K hashes | **292K hashes** |
-| Sig size | 4,008 B | **3,976 B** (32 B smaller) |
-| Verify gas | 115K | **116K** (~same) |
-| Security at 2^14 sigs | 128 bits | **128 bits** |
-| Security at 2^16 sigs | 128 bits | **118 bits** |
-| Security at 2^20 sigs | 104 bits | **86 bits** |
-
-The security reduction at high signature counts doesn't matter for JARDÍN: C11 is only used for Type 1 (registration + emergency), not for every transaction. With Q_MAX=32, a user needs 1 C11 signature per 32 compact transactions. Even a very active wallet producing 10,000 compact sigs would only need ~312 C11 signatures — well within the 2^14 safe zone (128-bit security).
-
----
-
-## 8. Hybrid ECDSA: Belt-and-Suspenders
-
-### The design choice
-
-Every JardinAccount UserOp requires **both** an ECDSA signature and a post-quantum signature. Neither alone is sufficient.
-
-The signature layout prepends a 65-byte ECDSA signature after the type byte:
 ```
-[type 1B][ecdsaSig 65B][...PQ payload...]
+slot_sk_seed = HMAC-SHA512(masterSkSeed, "JARDIN/SKSEED" || r)[0:32]
+slot_sk_prf  = HMAC-SHA512(masterSkSeed, "JARDIN/SKPRF"  || r)[0:16]
 ```
 
-The account validates ECDSA first (3K gas, `ecrecover`), then the PQ signature (C11 or FORS+C). If either fails, the UserOp is rejected.
+The compact digest is then:
 
-### Why hybrid?
-
-1. **Transition safety**: Until quantum computers actually break ECDSA, the hybrid scheme is as secure as the stronger of the two. If FORS+C has a subtle implementation bug, ECDSA still protects. If Shor's algorithm breaks secp256k1, the hash-based signature still protects.
-
-2. **Negligible cost**: ECDSA verification costs ~3K gas. Against a 174K Type 2 total, that's 1.7% overhead.
-
-3. **Key separation**: ECDSA derives from BIP-32 (m/44'/60'/0'/0/0), SPHINCs- derives from HMAC-SHA512. Independent paths — compromising one doesn't leak the other.
-
-### The frame account exception
-
-JardinFrameAccount is **pure PQ** — no ECDSA. This is intentional: frame transactions target a post-quantum future where ECDSA may be broken. The frame account saves 65 bytes per signature and ~3K gas per verification.
-
----
-
-## 9. Frame vs 4337: Two Account Models
-
-### ERC-4337 (JardinAccount)
-
-- Hybrid ECDSA + PQ on every UserOp
-- Goes through EntryPoint.handleOps → account._validateSignature
-- EntryPoint nonce provides replay protection
-- Higher gas due to EntryPoint overhead (~50K) and ECDSA (~3K)
-- Works on any EVM chain with the EntryPoint deployed
-
-### EIP-8141 Frame (JardinFrameAccount)
-
-- Pure PQ, no ECDSA
-- Direct call to verifyAndApprove(sigHash, sig, scope)
-- Frame protocol nonce provides replay protection
-- Lower gas: no EntryPoint overhead, no ECDSA
-- Only works on frame-enabled chains (ethrex)
-
-### Measured comparison (Sepolia)
-
-| | Frame (pure PQ) | 4337 (hybrid) | Savings |
-|---|---|---|---|
-| Type 1 (register) | **235K** | 323K | 27% |
-| Type 2 (compact q=1) | **125K** | 174K | 28% |
-| Type 1 sig | 4,041 B | 4,138 B | 97 B |
-| Type 2 sig | 2,533 B | 2,598 B | 65 B |
-
-Both models share the same verifiers (C11 and FORS+C) and the same slot mechanism. The difference is purely in the account wrapper.
-
----
-
-## 10. H_msg: 192-Byte Domain-Separated Hash
-
-### Why 192 bytes instead of 160?
-
-The existing SPHINCs- verifiers use a 160-byte H_msg:
 ```
-keccak256(seed || root || R || message || domain_mask) = 5 × 32 = 160 bytes
+M*     = "JARDIN/TYPE2/v1" || subPkSeed || subPkRoot || q || message
+R      = PRF_msg(slot_sk_prf, opt_rand, uint32_be(counter) || M*)
+digest = H_msg(R, subPkSeed, subPkRoot, uint32_be(counter) || M*)
 ```
 
-JARDÍN's FORS+C verifier adds a **counter** field for grinding:
+where PRF_msg and H_msg are instantiated as keccak256 with domain-separated inputs, and opt_rand = subPkSeed for deterministic signing.
+
+The signer iterates counter until the last a bits of the digest are zero: (digest >> (k_open)*a) & (2^a - 1) == 0.
+
+For k_open=25, a=5, this means the last 5 bits of the 130-bit digest must be zero. Expected trials: 2^a = 32. Both R (16 bytes) and counter (4 bytes) are included in the signature so the verifier can recompute the exact digest.
+
+Since the last tree always opens leaf 0, its auth path is omitted entirely. The signature opens only the first k_open = 25 trees.
+
 ```
-keccak256(seed || root || R || message || counter || domain_mask) = 6 × 32 = 192 bytes
+k_total = 26
+k_open  = 25
+a = a'  = 5
+digest bits = idx_0 || ... || idx_24 || zero_5
+SIG_FORSC   = counter:4 || Π_{i=0}^{24}( sk_i:16 || auth_i:80 )
 ```
 
-The counter enables the signer to iterate until the last FORS index is zero (forced-zero grinding) without re-sampling R. This is more efficient than the alternative (re-deriving R via PRF for each attempt), which would require an additional hash call per trial.
+**JARDIN address scheme.** FIPS 205 uses a 32-byte ADRS with 12 bytes for the tree address. JARDIN compresses the tree address to 8 bytes, freeing 4 bytes for a new ci field that carries the FORS+C leaf index q. The FIPS-assigned type values FORS_TREE = 3, FORS_ROOTS = 4, FORS_PRF = 6 are kept unchanged. The balanced Merkle tree uses JARDIN_MERKLE = 16, outside the FIPS range. For compact-path FORS+C, kp is fixed to 0 and the ci field carries q. The treeIndex field y remains continuous across all FORS trees exactly as in FIPS 205 (Algorithms 14 to 17).
 
-### Forced-zero condition
+```
+ADRS (32 bytes) = layer:4 || tree:8 || type:4 || kp:4 || ci:4 || x:4 || y:4
+type = 3 FORS_TREE
+kp=0 ci=q x=treeHeight y=treeIndex (continuous across all k trees)
+type = 4 FORS_ROOTS
+kp=0 ci=q x=0 y=0
+type = 6 FORS_PRF
+kp=0 ci=q x=0 y=treeIndex (same leaf index as FORS_TREE)
+type = 16 JARDIN_MERKLE
+kp=0 ci=0 x=level y=nodeIndex
+```
 
-For k=26, a=5: the last 5 bits of the FORS index range (bits 125-129 of the digest) must be zero. The signer iterates the counter until this condition is met. Expected trials: 2^5 = 32. Cost: 32 hash evaluations — negligible.
+The ci=q field provides domain separation between FORS+C instances at different balanced-tree leaf positions: two signatures at q=3 and q=7 use different tweakable-hash addresses even though they share the same seed. The ci field is only needed for FORS types (3, 4, 6) — the Merkle tree type (16) uses (level, nodeIndex) for full domain separation of internal nodes, so ci is set to 0.
 
-The forced-zero trick (from FORS+C / SPHINCS+C) eliminates one tree from the signature: instead of 26 tree auth paths, only 25 are needed. The 26th tree's root is included directly (16 bytes), saving 25 × 5 × 16 - 16 = 1,984 bytes. The signature would be 4,436 bytes without +C; it's 2,452 bytes with +C.
+**Hash function instantiation.** FIPS 205 defines six abstract functions (PRF_msg, H_msg, PRF, T_k, H, F) instantiated with SHAKE256 or SHA2. JARDIN, like SPHINCS-, replaces all with keccak256:
 
----
+* F(PK.seed, ADRS, M) becomes `th(seed, adrs, input) = keccak256(seed || adrs || input) & N_MASK`
+* H(PK.seed, ADRS, M) becomes `th_pair(seed, adrs, left, right) = keccak256(seed || adrs || left || right) & N_MASK`
+* T_k(PK.seed, ADRS, roots) becomes `th_multi(seed, adrs, vals) = keccak256(seed || adrs || vals[0] || ... || vals[k-1]) & N_MASK`
 
-## 11. Address Scheme: Domain Separation via Tweakable Hashing
+where N_MASK truncates to n=16 bytes (128 bits). The on-chain verifier implements these directly in Yul assembly, using the EVM `KECCAK256` opcode.
 
-### FORS tree addresses
+**Balanced Merkle tree (JARDIN-specific).** This structure is not present in FIPS 205. It commits Q_MAX = 2^h = 128 independent FORS+C public keys under a single root using a standard balanced binary Merkle tree of height h=7.
 
-Every hash in JARDÍN uses a tweakable hash function: `th(seed, adrs, input)` or `th_pair(seed, adrs, left, right)`, where `adrs` is a 256-bit address encoding the operation context.
+Keygen builds the tree bottom-up:
 
-For FORS trees: `adrs = make_adrs(0, 0, ADRS_FORS_TREE, tree_idx, q, height, node_idx)`
+```
+-- Compute all FORS+C leaf public keys (q is 1-indexed for ADRS ci field)
+For q = 1 to Q_MAX:
+  leaves[q-1] = compute_forsc_pk(seed, sk_seed, q)
 
-The `q` field (unbalanced tree leaf index) appears in the `ci` (chain index) position. This ensures that FORS trees for different q values use different addresses, even though they share the same seed. Without this, an attacker observing signatures at q=3 and q=7 could potentially mix-and-match FORS openings across leaves.
+-- Build balanced tree bottom-up
+-- Level h (=7) = leaves, level 0 = root
+nodes[h] = leaves
+For level = h-1 down to 0:
+  For i = 0 to 2^level - 1:
+    nodes[level][i] = th_pair(seed,
+      ADRS(type=16, ci=0, x=level, y=i),
+      nodes[level+1][2*i],
+      nodes[level+1][2*i+1])
 
-### Unbalanced tree addresses
+root = nodes[0][0]
+```
 
-For the unbalanced tree walk: `adrs = make_adrs(0, 0, ADRS_UNBALANCED, 0, 0, depth, 0)`
+The auth path for leaf q (0-indexed) consists of h=7 sibling nodes, one per level:
 
-The `depth` field is the absolute depth from the root (0 = root, 1 = first spine node, etc.). This is consistent between keygen (building top-down) and verification (walking bottom-up). The verifier computes `depth = q - 1 - j` for step j, which matches the keygen's depth assignment.
+```
+For j = 0 to h-1:
+  auth[j] = sibling of the node on q's path at level h-1-j
+Total: h = 7 nodes, each n=16 bytes, always 112 bytes
+```
 
-### FORS root compression addresses
+Verification walks the auth path bottom-up, reconstructing the root:
 
-For the final compression of 26 tree roots into one FORS public key:
-`adrs = make_adrs(0, 0, ADRS_FORS_ROOTS, 0, q, 0, 0)`
+```
+forsPk = verify_forsc(sig)             -- FORS+C verification (uses ci=q in FORS ADRS)
+node = forsPk
+For j = 0 to h-1:
+  level = h - 1 - j
+  parentIndex = q >> (j + 1)
+  if bit j of q is 0:
+    node = th_pair(seed, ADRS(type=16, ci=0, x=level, y=parentIndex), node, auth[j])
+  else:
+    node = th_pair(seed, ADRS(type=16, ci=0, x=level, y=parentIndex), auth[j], node)
+Check: node == pkRoot
+```
 
-Again, `q` is included for domain separation between different unbalanced tree leaves.
+This is a standard Merkle inclusion proof. The bits of q determine left/right ordering at each level. The ADRS encodes (level, parentIndex) for full domain separation of every internal hash.
 
----
+## 4. Architecture
 
-## 12. Gas Analysis: Where the Gas Goes
+### 4.1 Two signature types
 
-### Type 2 (FORS+C compact, q=1) — 174K total 4337 gas
+**Type 1: Stateless C11 master signature + optional sub-key registration.**
 
-| Component | Gas | Notes |
-|-----------|-----|-------|
-| EntryPoint overhead | ~50K | handleOps, nonce check, accounting |
-| Calldata (2,598 bytes) | ~42K | ~16 gas per non-zero byte |
-| ECDSA ecrecover | ~3K | |
-| Slot lookup (SLOAD) | ~2.1K | Warm after first access |
-| keccak slot check | ~0.1K | H(subSeed, subRoot) == slots[key] |
-| FORS+C verify (25 trees) | ~49K | 25 × (leaf hash + 5 auth levels) |
-| Root compression (26 roots) | ~1K | Single keccak of 896 bytes |
-| Unbalanced tree walk (1 node) | ~0.5K | 1 × th_pair |
-| Account wrapper overhead | ~26K | ABI decode, staticcall, return |
+```
+[0x01][ecdsaSig 65B][subPkSeed 16B][subPkRoot 16B][C11 sig ~3,944B]
 
-### Gas growth per q
+Total: ~4,106 bytes | 235K gas (frame)| 390 seconds on secure element
+```
 
-Each additional q adds:
-- 16 bytes of calldata: ~256 gas
-- 1 unbalanced tree th_pair: ~250 gas
-- **Total: ~498 gas per q** (measured average across 32 leaves)
+Used for: first transaction per device (registers the device's sub-key), emergency recovery, and slot exhaustion re-registration. Setting subPkSeed=0 and subPkRoot=0 skips registration for stateless fallback.
 
-At q=32: 174K + 31 × 498 = **189K** — confirmed by on-chain measurement.
+**Type 2: FORS+C compact via registered sub-key.**
 
----
+```
+[0x02][ecdsaSig 65B][subPkSeed 16B][subPkRoot 16B][q 1B][FORS+C sig][merkleAuth 112B]
+Total: ~2,598 bytes (frame, constant) | 119K gas (frame) | 3.1 seconds on secure element
+```
 
-## 13. Full Cycle: 36 Transactions on Sepolia
+The verifier reads q from the explicit 1-byte field, recomputes the digest from R, counter, subPkSeed, subPkRoot, q, and the message, checks that the last a bits are zero, verifies the FORS+C body, then walks the balanced Merkle auth path (h=7 nodes) up to subPkRoot. The contract verifies `slots[keccak256(subPkSeed, subPkRoot)] != 0`, then verifies the FORS+C signature under the sub-key.
 
-We executed a complete slot lifecycle on Sepolia, demonstrating the full JARDÍN flow:
+### 4.2 The balanced Merkle tree
 
-1. **Deploy** JardinAccount via CREATE2 factory
-2. **Type 1** — Register slot 1 (ECDSA + C11 + sub-key registration)
-3. **Type 2 × 32** — Compact FORS+C signatures from q=1 to q=32
-4. **Type 1** — Re-register slot 2 (fresh sub-key, new `r`)
-5. **Type 2 × 2** — Compact signatures on the new slot (q=1, q=2)
+JARDIN commits Q_MAX = 128 independent FORS+C public keys under a single root using a balanced binary Merkle tree of height h=7. The auth path for any leaf q consists of exactly h=7 sibling nodes (112 bytes), regardless of q.
 
-All 36 transactions succeeded. The re-registration confirmed that:
-- The new slot uses a completely independent FORS+C tree
-- q resets to 1 on the new slot
-- Gas returns to the q=1 baseline (174K)
+All compact-path signatures have constant size, constant verification gas, and constant calldata cost. Since JARDIN wallets are expected to consume most of their slot budget (unlike Bitcoin wallets where average q is 1-2 [4]), the balanced tree provides better average-case performance and a simpler verifier than a spine-shaped alternative.
 
-Account address: [`0x05B3aad92B34BDD207F4305FC6100318F041F583`](https://sepolia.etherscan.io/address/0x05B3aad92B34BDD207F4305FC6100318F041F583)
+## 5. FORS+C Parameter Selection
 
-### JardinFrameAccount (pure PQ)
+### 5.1 Chosen parameters: k=26, a=5, h=7
 
-Additionally tested the frame account model on Sepolia (verification logic only — the APPROVE opcode is a no-op on standard EVM):
+| Parameter | Value              | Rationale                                   |
+| --------- | ------------------ | ------------------------------------------- |
+| k         | 26                 | k*a = 130 >= 128 for one-time security      |
+| a         | 5 (32 leaves/tree) | Minimises signing cost: ~2,600 hashes       |
+| n         | 16 bytes           | 128-bit hash output                         |
+| Q_MAX     | 128 (h=7)          | Balanced tree height chosen for keygen budget (~5 min on SE) |
 
-| Type | Gas | Tx |
-|------|-----|----| 
-| Type 1 (C11 + register) | **235K** | [`0x371ca6e7...`](https://sepolia.etherscan.io/tx/0x371ca6e7114c2f9feba291fafeaf337b40e1f5293924bb48ed6c36428fae95f8) |
-| Type 2 (FORS+C q=1) | **125K** | [`0xa7900072...`](https://sepolia.etherscan.io/tx/0xa7900072a111aa61cfcf886e88b351686fdb8e24eb379f922617d354fda95469) |
+Signing cost: 26 trees * ~100 hashes = 2,600 keccak calls. Keygen cost per leaf: 26 * (32 + 32 + 31) + 1 = 2,471 hashes. For 128 leaves: 128 * 2,471 + 127 = 316,415 hashes (~301 seconds on a secure element). This is a one-time cost per slot.
 
-Frame account: [`0x5cc7d476...`](https://sepolia.etherscan.io/address/0x5cc7d476d9b7e08f52cae9caa6d32df100b5b650)
+### 5.2 The r=2 security trade-off
 
----
+k=26, a=5 gives 105-bit security under double-signing (r=2). 2^105 hash evaluations at 10^12 hashes/second would take 10^13 years. The 3-second signing time enables the scheme on constrained hardware.
 
-## 14. Open Questions & Future Work
+## 6. Multi-Device Architecture
 
-1. **Rust/WASM signer for JARDÍN**: The current signer is Python (~1s keygen for D=32). A Rust WASM implementation would bring this to ~50ms, enabling browser wallets.
+Each device generates an independent 32-byte random `r` from its hardware RNG:
 
-2. **BIP-39 integration**: The current key derivation uses a placeholder path. Production would use `HMAC-SHA512("sphincs-c11-v1", bip39_seed)` with proper BIP-44 separation, matching the existing Rust signer pattern.
+```
+r = hardware_rng(32)                             -- 2^256 space
+sub_sk_seed = HMAC-SHA512(masterSkSeed, r)       -- deterministic from master + r
+sub_pk_seed, sub_pk_root = FORS+C_keygen(sub_sk_seed)    -- balanced tree of 128 keys
+```
 
-3. **ethrex frame deployment**: The JardinFrameAccount has been tested on Sepolia (verification logic only). Full deployment on ethrex with the APPROVE opcode would demonstrate the pure PQ path end-to-end.
+The value `r` never leaves the device. The contract identifies sub-keys by their public components: registration writes `slots[keccak256(subPkSeed, subPkRoot)] = 1` and verification checks that this slot is nonzero. Since `subPkSeed` and `subPkRoot` are already present in every Type 2 signature for FORS+C verification, no additional bytes are needed for slot lookup.
 
-4. **Formal verification**: The existing Verity kernel proves Merkle acceptance for the SPHINCs- verifier. Extending this to cover the FORS+C-only verification and unbalanced tree walk would provide machine-checked guarantees for the JARDÍN compact path.
+Because `r` is sampled from a 256-bit random source, two independent devices restoring from the same 24-word mnemonic derive independent sub-keys (collision probability 2^{-256}), enabling unlimited devices without inter-device coordination.
 
-5. **Multi-sig / threshold**: The JARDÍN slot mechanism is per-device. A multi-sig variant would require k-of-n slot agreement, potentially using the multi-OTS construction from the Blockstream report.
+## 7. Leaf Index Encoding
 
-6. **Sentinel removal**: With an explicit 1-byte q field in the signature, the sentinel could be removed, saving 1 hash in keygen and 16 bytes on the last signature. This is a minor optimization that trades signature format simplicity for marginal space savings.
+The leaf index q is encoded as a single byte in the Type 2 signature. The verifier reads q directly and uses it for FORS+C address domain separation (ci=q in the ADRS) and the Merkle auth path walk. No on-chain counter, no storage slot, no SSTORE.
+
+The 1-byte q field is authenticated implicitly: a wrong q produces a wrong FORS+C public key via the ci=q domain separation, which produces a wrong Merkle root, which fails the root check. The signer cannot lie about q.
+
+## 8. On-Chain Results
+
+Full slot lifecycle tested on both Sepolia (ERC-4337 hybrid) and ethrex (EIP-8141 frame). Measurements with the balanced h=7 tree, Q_MAX=128:
+
+| Metric                    | Frame (ethrex) | 4337 (Sepolia) |
+| ------------------------- | -------------- | -------------- |
+| Type 1 register           | 234K           | 323K           |
+| Type 1 stateless fallback | 209K           | 300K           |
+| Type 2 (any q, constant)  | 119K           | 176K           |
+| Sig (Type 2, any q)       | 2,598 B        | 2,663 B        |
+
+Compact-path verification gas is constant regardless of q, matching the balanced-tree design.
+
+## 9. Security Summary
+
+| Component                | Property          | Value                    |
+| ------------------------ | ----------------- | ------------------------ |
+| Compact path (FORS+C)    | One-time (r=1)    | 130-bit                  |
+|                          | Double-sign (r=2) | 105-bit                  |
+|                          | Five reuses (r=5) | 74-bit                   |
+| Stateless fallback (C11) | At 2^14 sigs      | 128-bit                  |
+|                          | At 2^18 sigs      | 104.5-bit                |
+| Hybrid ECDSA             | Pre-quantum       | secp256k1                |
+| Hash function            | Preimage          | keccak256, 128-bit       |
+| Replay protection        | 4337 / Frame      | EntryPoint / Protocol nonce |
+| Rollback resistance      | Device            | Burn-before-sign (NVRAM) |
+
+## 10. Relation to Prior Work
+
+|                    | SHRINCS [4]           | SHRIMPS [5]                 | JARDIN                          |
+| ------------------ | --------------------- | --------------------------- | ------------------------------- |
+| Compact path       | WOTS+C (one-time)     | Compact SPHINCS+            | FORS+C (few-time)               |
+| Reuse tolerance    | None (catastrophic)   | Graceful (SPHINCS+ variant) | Ok for 2 use (105-bit at r=2)   |
+| Compact sig        | 308 B (q=1)           | 2,564 B                     | 2,598 B (constant)              |
+| Multi-device       | Single device         | Bounded (n_dev)             | Unlimited (2^256 slots)         |
+| State coordination | Required              | Minimal (per-device budget) | None                            |
+| On-chain state     | N/A (Bitcoin)         | N/A (Bitcoin)               | Slot mapping only               |
+| Target             | Bitcoin (SHA-256)     | Bitcoin (SHA-256)           | EVM (keccak256)                 |
+| Tree topology      | Spine (low-q optimal) | N/A                         | Balanced (high-q optimal)       |
+
+* * *
+
+## References
+
+[1] R. Babbush, A. Zalcman, C. Gidney, M. Broughton, T. Khattar, H. Neven, T. Bergamaschi, J. Drake, and D. Boneh. "Securing Elliptic Curve Cryptocurrencies against Quantum Vulnerabilities: Resource Estimates and Mitigations." arXiv:2603.28846, 2026.
+
+[2] N. Consigny. "SPHINCs-: Efficient Stateless Post-Quantum Signature Verification on the EVM." Companion paper, 2026.
+
+[3] M. Kudinov and J. Nick. "Hash-based Signature Schemes for Bitcoin." Cryptology ePrint Archive, Paper 2025/2203, 2025.
+
+[4] J. Nick. "SHRINCS: 324-byte Stateful Post-Quantum Signatures with Static Backups." Delving Bitcoin, 2025. https://delvingbitcoin.org/t/shrincs-324-byte-stateful-post-quantum-signatures-with-static-backups/2158
+
+[5] J. Nick. "SHRIMPS: 2.5 KB Post-Quantum Signatures across Multiple Stateful Devices." Delving Bitcoin, 2025. https://delvingbitcoin.org/t/shrimps-2-5-kb-post-quantum-signatures-across-multiple-stateful-devices/2355
+
+[6] T. Roche, V. Lomne. "A Side Journey to Titan." SSTIC, 2021.
+
+[7] National Institute of Standards and Technology. "Stateless Hash-Based Digital Signature Standard." FIPS 205, August 2024.
+
+[8] T. Marchand. "Verity: Lean 4 to EVM Formally Verified Smart Contracts." LFG Labs, 2025.
+
+[9] Y. Seurin. "CryptoSecProofs: Machine-Checked Cryptographic Security Proofs." https://github.com/yannickseurin/CryptoSecProofs
+
+[10] EIP-8141: Frame Transactions. ethereum/EIPs.

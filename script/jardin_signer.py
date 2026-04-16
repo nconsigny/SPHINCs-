@@ -2,11 +2,11 @@
 """
 JARDÍN signer — Judicious Authentication from Random-subset Domain-separated Indexed Nodes.
 
-FORS+C few-time signatures with unbalanced Merkle tree.
-Variant 2: k=26, a=5, n=16 bytes (128-bit). Q_MAX=32 leaves.
+FORS+C few-time signatures under a balanced Merkle tree of height h=7.
+Variant 2: k=26, a=5, n=16 bytes (128-bit). Q_MAX=128 leaves.
 
 Usage:
-    python3 script/jardin_signer.py <message_hex> [q_leaf] [q_max]
+    python3 script/jardin_signer.py <message_hex> [q_leaf]
 
 Output: ABI-encoded (bytes32 seed, bytes32 root, bytes sig) as hex to stdout.
 """
@@ -15,7 +15,7 @@ import sys, struct, time
 from Crypto.Hash import keccak as _keccak_mod
 
 # ============================================================
-#  Constants — Variant 2: k=26, a=5
+#  Constants — Variant 2: k=26, a=5, balanced h=7
 # ============================================================
 
 N = 16
@@ -25,16 +25,22 @@ FULL = (1 << 256) - 1
 K = 26        # FORS trees
 A = 5         # FORS tree height (2^5 = 32 leaves per tree)
 A_MASK = (1 << A) - 1  # 0x1F
-Q_MAX = 95
 
-# Signature layout:
+MERKLE_H = 7          # balanced tree height
+Q_MAX = 1 << MERKLE_H # 128
+
+# FORS+C body (unchanged):
 #   R(32) + counter(4) + (K-1)*(secret N + auth A*N) + lastRoot(N)
-#   = 32 + 4 + 25*(16 + 5*16) + 16 = 32 + 4 + 25*96 + 16 = 2452
+#   = 32 + 4 + 25*(16 + 5*16) + 16 = 2452
 FORSC_BODY = 32 + 4 + (K - 1) * (N + A * N) + N  # 2452
+
+# Full Type 2 FORS+C signature passed to verifier:
+#   FORSC_BODY + q(1) + MERKLE_H * N = 2452 + 1 + 112 = 2565
+FORSC_SIG_LEN = FORSC_BODY + 1 + MERKLE_H * N
 
 ADRS_FORS_TREE = 3
 ADRS_FORS_ROOTS = 4
-ADRS_UNBALANCED = 6
+ADRS_JARDIN_MERKLE = 16
 HMSG_DOMAIN = (1 << 256) - 1
 
 # ============================================================
@@ -116,19 +122,20 @@ def jardin_fors_secret(sk_seed, q, tree_idx, leaf_idx):
     data = to_b32(sk_seed) + b"jfors" + to_b4(q) + to_b4(tree_idx) + to_b4(leaf_idx)
     return keccak256(data) & N_MASK
 
-def jardin_sentinel(seed, sk_seed):
-    return keccak256(to_b32(seed) + to_b32(sk_seed) + b"jardin_sentinel") & N_MASK
-
 # ============================================================
 #  FORS+C (k=26, a=5)
 # ============================================================
 
 def build_jardin_fors_tree(seed, sk_seed, q, tree_idx):
+    """FIPS 205 ADRS convention: kp=0, ci=q, x=treeHeight, y=continuous tree
+    index across all k FORS trees. For tree_idx at height z with local node
+    index p, global y = (tree_idx << (A - z)) | p."""
     n_leaves = 1 << A  # 32
     leaves = []
     for j in range(n_leaves):
         secret = jardin_fors_secret(sk_seed, q, tree_idx, j)
-        leaf_adrs = make_adrs(0, 0, ADRS_FORS_TREE, tree_idx, q, 0, j)
+        global_y = (tree_idx << A) | j
+        leaf_adrs = make_adrs(0, 0, ADRS_FORS_TREE, 0, q, 0, global_y)
         leaves.append(th(seed, leaf_adrs, secret))
     nodes = [leaves]
     for h in range(A):
@@ -136,7 +143,8 @@ def build_jardin_fors_tree(seed, sk_seed, q, tree_idx):
         level = []
         for idx in range(0, len(prev), 2):
             parent_idx = idx // 2
-            adrs = make_adrs(0, 0, ADRS_FORS_TREE, tree_idx, q, h + 1, parent_idx)
+            global_y = (tree_idx << (A - h - 1)) | parent_idx
+            adrs = make_adrs(0, 0, ADRS_FORS_TREE, 0, q, h + 1, global_y)
             level.append(th_pair(seed, adrs, prev[idx], prev[idx + 1]))
         nodes.append(level)
     return nodes, nodes[A][0]
@@ -155,55 +163,54 @@ def compute_forsc_pk(seed, sk_seed, q):
         _, root = build_jardin_fors_tree(seed, sk_seed, q, t)
         roots.append(root)
     compress_vals = list(roots[:K - 1])
-    last_leaf_adrs = make_adrs(0, 0, ADRS_FORS_TREE, K - 1, q, 0, 0)
+    # Last tree (t=K-1, leaf j=0): leaf ADRS x=0, y = (K-1) << A
+    last_leaf_adrs = make_adrs(0, 0, ADRS_FORS_TREE, 0, q, 0, (K - 1) << A)
     compress_vals.append(th(seed, last_leaf_adrs, roots[K - 1]))
+    # FORS_ROOTS ADRS: kp=0, ci=q, x=0, y=0
     roots_adrs = make_adrs(0, 0, ADRS_FORS_ROOTS, 0, q, 0, 0)
     return th_multi(seed, roots_adrs, compress_vals)
 
 # ============================================================
-#  Unbalanced Merkle Tree (with sentinel)
+#  Balanced Merkle Tree (h=7, 128 leaves)
 # ============================================================
 
-def build_unbalanced_tree(seed, sk_seed, q_max):
-    D = q_max
+def build_balanced_tree(seed, sk_seed):
+    """Build balanced Merkle tree of Q_MAX=2^h FORS+C public keys.
+
+    Returns (levels, root) where levels[L] is the list of nodes at level L.
+    levels[MERKLE_H] = FORS+C public keys (leaves), levels[0] = [root].
+    """
     fors_pks = []
-    for i in range(D):
-        q = i + 1
-        eprint(f"  FORS+C PK q={q}/{D}...")
-        pk = compute_forsc_pk(seed, sk_seed, q)
-        fors_pks.append(pk)
+    for q in range(1, Q_MAX + 1):
+        eprint(f"  FORS+C PK q={q}/{Q_MAX}...")
+        fors_pks.append(compute_forsc_pk(seed, sk_seed, q))
 
-    sent = jardin_sentinel(seed, sk_seed)
+    levels = [None] * (MERKLE_H + 1)
+    levels[MERKLE_H] = fors_pks
+    for level in range(MERKLE_H - 1, -1, -1):
+        layer = []
+        child_layer = levels[level + 1]
+        for i in range(1 << level):
+            adrs = make_adrs(0, 0, ADRS_JARDIN_MERKLE, 0, 0, level, i)
+            left = child_layer[2 * i]
+            right = child_layer[2 * i + 1]
+            layer.append(th_pair(seed, adrs, left, right))
+        levels[level] = layer
 
-    if D == 1:
-        root = th_pair(seed, make_adrs(0, 0, ADRS_UNBALANCED, 0, 0, 0, 0), sent, fors_pks[0])
-        return fors_pks, [], sent, root
+    root = levels[0][0]
+    return levels, root
 
-    spine = [None] * (D - 1)
-    spine[D - 2] = th_pair(seed, make_adrs(0, 0, ADRS_UNBALANCED, 0, 0, D - 1, 0),
-                            sent, fors_pks[D - 1])
-    for i in range(D - 3, -1, -1):
-        spine[i] = th_pair(seed, make_adrs(0, 0, ADRS_UNBALANCED, 0, 0, i + 1, 0),
-                           spine[i + 1], fors_pks[i + 1])
-    root = th_pair(seed, make_adrs(0, 0, ADRS_UNBALANCED, 0, 0, 0, 0),
-                   spine[0], fors_pks[0])
-    return fors_pks, spine, sent, root
-
-def get_unbalanced_auth_path(fors_pks, spine, sentinel, q, q_max):
-    D = q_max
-    i = q - 1
-    if D == 1:
-        return [sentinel]
+def get_balanced_auth_path(levels, q):
+    """Auth path for leaf q (1-indexed). Returns MERKLE_H=7 sibling nodes."""
+    leaf_idx = q - 1
     auth = []
-    if i == 0:
-        auth.append(spine[0])
-    elif i >= D - 1:
-        auth.append(sentinel)
-    else:
-        auth.append(spine[i])
-    for j in range(i - 1, -1, -1):
-        auth.append(fors_pks[j])
-    assert len(auth) == q
+    idx = leaf_idx
+    for j in range(MERKLE_H):
+        # At step j we combine nodes at child level (MERKLE_H - j);
+        # sibling is at levels[MERKLE_H - j][idx ^ 1].
+        child_level = MERKLE_H - j
+        auth.append(levels[child_level][idx ^ 1])
+        idx >>= 1
     return auth
 
 # ============================================================
@@ -211,8 +218,9 @@ def get_unbalanced_auth_path(fors_pks, spine, sentinel, q, q_max):
 # ============================================================
 
 def jardin_grind_and_sign(seed, sk_seed, root, message, q):
+    """Compute FORS+C body (2452 bytes) for leaf q."""
     R = keccak256(to_b32(sk_seed) + b"jardin_R" + to_b32(message) + to_b4(q))
-    last_shift = (K - 1) * A  # 25 * 5 = 125
+    last_shift = (K - 1) * A  # 125
 
     for counter in range(10_000_000):
         digest = jardin_h_msg(seed, root, R, message, counter)
@@ -244,40 +252,69 @@ def jardin_grind_and_sign(seed, sk_seed, root, message, q):
     assert len(sig) == FORSC_BODY, f"{len(sig)} != {FORSC_BODY}"
     return sig, R, counter, digest
 
+def jardin_sign(seed, sk_seed, root, levels, message, q):
+    """Produce the full FORS+C compact signature (constant FORSC_SIG_LEN bytes)."""
+    fors_body, R, counter, digest = jardin_grind_and_sign(
+        seed, sk_seed, root, message, q
+    )
+    auth = get_balanced_auth_path(levels, q)
+    sig = fors_body + bytes([q & 0xFF])
+    for node in auth:
+        sig += to_b32(node)[:N]
+    assert len(sig) == FORSC_SIG_LEN, f"{len(sig)} != {FORSC_SIG_LEN}"
+    return sig, R, counter, digest
+
 # ============================================================
 #  Local Verification
 # ============================================================
 
-def jardin_verify_locally(seed, root, message, q, R, counter, digest,
-                          fors_sig, fors_pks, spine, sentinel, q_max):
-    d2 = jardin_h_msg(seed, root, R, message, counter)
-    assert d2 == digest
+def jardin_verify_locally(seed, root, message, sig):
+    """Mirror the on-chain verifier for sanity checking."""
+    assert len(sig) == FORSC_SIG_LEN, f"{len(sig)} != {FORSC_SIG_LEN}"
+
+    R = int.from_bytes(sig[0:32], "big")
+    counter = int.from_bytes(sig[32:36], "big")
+    q = sig[FORSC_BODY]
+    assert 1 <= q <= Q_MAX, f"q out of range: {q}"
+
+    digest = jardin_h_msg(seed, root, R, message, counter)
     assert (digest >> ((K - 1) * A)) & A_MASK == 0
     indices = [(digest >> (t * A)) & A_MASK for t in range(K)]
 
     off = 36
     tree_roots = []
     for t in range(K - 1):
-        secret = int.from_bytes(fors_sig[off:off + N], "big") << 128; off += N
-        node = th(seed, make_adrs(0, 0, ADRS_FORS_TREE, t, q, 0, indices[t]), secret)
+        secret = int.from_bytes(sig[off:off + N], "big") << 128; off += N
+        leaf_y = (t << A) | indices[t]
+        node = th(seed, make_adrs(0, 0, ADRS_FORS_TREE, 0, q, 0, leaf_y), secret)
         path_idx = indices[t]
         for h in range(A):
-            sib = int.from_bytes(fors_sig[off:off + N], "big") << 128; off += N
+            sib = int.from_bytes(sig[off:off + N], "big") << 128; off += N
             pi = path_idx >> 1
-            adrs = make_adrs(0, 0, ADRS_FORS_TREE, t, q, h + 1, pi)
+            parent_y = (t << (A - h - 1)) | pi
+            adrs = make_adrs(0, 0, ADRS_FORS_TREE, 0, q, h + 1, parent_y)
             node = th_pair(seed, adrs, node, sib) if path_idx & 1 == 0 else th_pair(seed, adrs, sib, node)
             path_idx = pi
         tree_roots.append(node)
 
-    lr = int.from_bytes(fors_sig[off:off + N], "big") << 128
-    tree_roots.append(th(seed, make_adrs(0, 0, ADRS_FORS_TREE, K - 1, q, 0, 0), lr))
+    lr = int.from_bytes(sig[off:off + N], "big") << 128
+    tree_roots.append(th(seed, make_adrs(0, 0, ADRS_FORS_TREE, 0, q, 0, (K - 1) << A), lr))
     fors_pk = th_multi(seed, make_adrs(0, 0, ADRS_FORS_ROOTS, 0, q, 0, 0), tree_roots)
 
-    auth = get_unbalanced_auth_path(fors_pks, spine, sentinel, q, q_max)
+    # Balanced Merkle walk
+    leaf_idx = q - 1
+    auth_off = FORSC_BODY + 1
     node = fors_pk
-    node = th_pair(seed, make_adrs(0, 0, ADRS_UNBALANCED, 0, 0, q - 1, 0), auth[0], node)
-    for j in range(1, len(auth)):
-        node = th_pair(seed, make_adrs(0, 0, ADRS_UNBALANCED, 0, 0, q - 1 - j, 0), node, auth[j])
+    for j in range(MERKLE_H):
+        sibling = int.from_bytes(sig[auth_off + j * N:auth_off + (j + 1) * N], "big") << 128
+        level = MERKLE_H - 1 - j
+        parent_idx = leaf_idx >> (j + 1)
+        adrs = make_adrs(0, 0, ADRS_JARDIN_MERKLE, 0, 0, level, parent_idx)
+        if (leaf_idx >> j) & 1 == 0:
+            node = th_pair(seed, adrs, node, sibling)
+        else:
+            node = th_pair(seed, adrs, sibling, node)
+
     assert node == root, f"Root mismatch: {hex(node)} != {hex(root)}"
     eprint("  Local verification OK")
 
@@ -295,33 +332,25 @@ def abi_encode(seed, root, sig):
 
 def main():
     if len(sys.argv) < 2:
-        eprint("Usage: python3 jardin_signer.py <message_hex> [q_leaf] [q_max]")
+        eprint("Usage: python3 jardin_signer.py <message_hex> [q_leaf]")
         sys.exit(1)
     msg_hex = sys.argv[1].replace("0x", "")
     q_leaf = int(sys.argv[2]) if len(sys.argv) > 2 else 1
-    q_max = int(sys.argv[3]) if len(sys.argv) > 3 else Q_MAX
     message_int = int(msg_hex, 16)
 
     t0 = time.time()
     pk_seed, sk_seed = jardin_derive_keys(message_int)
     eprint(f"  pkSeed = {hex(pk_seed)[:18]}...")
-    eprint(f"  Building unbalanced tree (Q_MAX={q_max})...")
-    fors_pks, spine, sent, pk_root = build_unbalanced_tree(pk_seed, sk_seed, q_max)
+    eprint(f"  Building balanced tree (h={MERKLE_H}, Q_MAX={Q_MAX})...")
+    levels, pk_root = build_balanced_tree(pk_seed, sk_seed)
     eprint(f"  pkRoot = {hex(pk_root)[:18]}...")
 
-    assert 1 <= q_leaf <= q_max
+    assert 1 <= q_leaf <= Q_MAX
     eprint(f"  Signing at q={q_leaf}...")
-    fors_sig, R, counter, digest = jardin_grind_and_sign(pk_seed, sk_seed, pk_root, message_int, q_leaf)
-    unb_auth = get_unbalanced_auth_path(fors_pks, spine, sent, q_leaf, q_max)
-    jardin_verify_locally(pk_seed, pk_root, message_int, q_leaf, R, counter, digest,
-                          fors_sig, fors_pks, spine, sent, q_max)
+    sig, _, _, _ = jardin_sign(pk_seed, sk_seed, pk_root, levels, message_int, q_leaf)
+    jardin_verify_locally(pk_seed, pk_root, message_int, sig)
 
-    sig = fors_sig
-    for node in unb_auth:
-        sig += to_b32(node)[:N]
-    expected = FORSC_BODY + q_leaf * N
-    assert len(sig) == expected, f"{len(sig)} != {expected}"
-    eprint(f"  Signature: {len(sig)} bytes ({q_leaf} auth nodes)")
+    eprint(f"  Signature: {len(sig)} bytes (constant)")
     eprint(f"  Total time: {time.time() - t0:.1f}s")
     print("0x" + abi_encode(pk_seed, pk_root, sig).hex())
 

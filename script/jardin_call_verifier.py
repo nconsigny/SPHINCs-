@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Call JardinForsCVerifier.verifyForsCUnbalanced() directly on Sepolia.
+Call JardinForsCVerifier.verifyForsC() directly on Sepolia.
 Generates a JARDÍN FORS+C signature, then calls the on-chain verifier via eth_call.
 
 Usage: python3 script/jardin_call_verifier.py
@@ -14,8 +14,8 @@ import requests
 # Add project root to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from script.jardin_signer import (
-    jardin_derive_keys, build_unbalanced_tree, jardin_grind_and_sign,
-    get_unbalanced_auth_path, to_b32, eprint, N, K, A, A_MASK
+    jardin_derive_keys, build_balanced_tree, jardin_sign,
+    to_b32, eprint, N, K, A, A_MASK, Q_MAX
 )
 
 # ============================================================
@@ -44,10 +44,10 @@ def eth_call(rpc_url, to, data):
     return result.get("result")
 
 def encode_verify_call(pk_seed, pk_root, message, sig):
-    """ABI-encode verifyForsCUnbalanced(bytes32,bytes32,bytes32,bytes) call."""
+    """ABI-encode verifyForsC(bytes32,bytes32,bytes32,bytes) call."""
     from Crypto.Hash import keccak as _k
     h = _k.new(digest_bits=256)
-    h.update(b"verifyForsCUnbalanced(bytes32,bytes32,bytes32,bytes)")
+    h.update(b"verifyForsC(bytes32,bytes32,bytes32,bytes)")
     selector = h.digest()[:4]
 
     # ABI encode: 3 × bytes32 + offset + length + data
@@ -69,17 +69,11 @@ def main():
 
     # Generate keys and signature
     q_leaf = 1
-    q_max = 4
-    eprint(f"  Generating signature (q={q_leaf}, q_max={q_max})...")
+    eprint(f"  Generating signature (q={q_leaf}, Q_MAX={Q_MAX})...")
 
     pk_seed, sk_seed = jardin_derive_keys(MESSAGE)
-    fors_pks, spine, sent, pk_root = build_unbalanced_tree(pk_seed, sk_seed, q_max)
-    fors_sig, R, counter, digest = jardin_grind_and_sign(pk_seed, sk_seed, pk_root, MESSAGE, q_leaf)
-    unb_auth = get_unbalanced_auth_path(fors_pks, spine, sent, q_leaf, q_max)
-
-    sig = fors_sig
-    for node in unb_auth:
-        sig += to_b32(node)[:N]
+    levels, pk_root = build_balanced_tree(pk_seed, sk_seed)
+    sig, _, _, _ = jardin_sign(pk_seed, sk_seed, pk_root, levels, MESSAGE, q_leaf)
 
     eprint(f"  pkSeed = {hex(pk_seed)}")
     eprint(f"  pkRoot = {hex(pk_root)}")

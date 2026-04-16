@@ -9,10 +9,10 @@ source /projects/SPHINCs-/.env
 VERIFIER="0x624A925D482DeacA51488aac0732a810810F778f"
 MESSAGE="0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 
-echo "=== Generating JARDÍN signature (q=1, q_max=4) ===" >&2
+echo "=== Generating JARDÍN signature (q=1, balanced h=7) ===" >&2
 
 # Get ABI-encoded output from signer
-ABI_HEX=$(python3 script/jardin_signer.py "$MESSAGE" 1 4)
+ABI_HEX=$(python3 script/jardin_signer.py "$MESSAGE" 1)
 
 # Parse: first 32 bytes = pkSeed, next 32 = pkRoot, rest = sig (after offset+length)
 PKSEED="0x${ABI_HEX:2:64}"
@@ -29,7 +29,7 @@ echo "  sig length: $SIG_LEN bytes" >&2
 
 echo "=== Calling verifier on Sepolia ===" >&2
 cast call "$VERIFIER" \
-  "verifyForsCUnbalanced(bytes32,bytes32,bytes32,bytes)(bool)" \
+  "verifyForsC(bytes32,bytes32,bytes32,bytes)(bool)" \
   "$PKSEED" "$PKROOT" "$MESSAGE" "0x${SIG_HEX}" \
   --rpc-url "$SEPOLIA_RPC_URL" 2>&1
 

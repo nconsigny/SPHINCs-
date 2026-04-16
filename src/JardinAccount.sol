@@ -11,10 +11,14 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 ///   Type 1 (0x01): ECDSA + C11 stateless + optional sub-key registration
 ///   Type 2 (0x02): ECDSA + FORS+C compact via registered sub-key slot
 ///
-/// No on-chain leaf counter. The leaf index q is derived from the signature
-/// length: q = (forscSig.length - 2212) / 16. FORS+C provides 112-bit security
-/// even under accidental double-signing (r=2). Replay protection comes from
-/// the EntryPoint nonce (4337) or Frame protocol nonce.
+/// Slot key is keccak256(subPkSeed, subPkRoot) — the sub-key's public commitment.
+/// The random `r` used to derive the sub-key never appears on-chain.
+///
+/// No on-chain leaf counter. The leaf index q is encoded as a single byte
+/// inside the FORS+C compact signature and verified via the balanced Merkle
+/// tree walk. FORS+C provides 105-bit security even under accidental
+/// double-signing (r=2). Replay protection comes from the EntryPoint nonce
+/// (4337) or Frame protocol nonce.
 contract JardinAccount is BaseAccount {
     using ECDSA for bytes32;
 
@@ -26,8 +30,8 @@ contract JardinAccount is BaseAccount {
     bytes32 public masterPkSeed;
     bytes32 public masterPkRoot;
 
-    /// @notice Sub-key slots: keccak256(r) => keccak256(subPkSeed, subPkRoot)
-    mapping(bytes32 => bytes32) public slots;
+    /// @notice Sub-key slots: keccak256(subPkSeed, subPkRoot) => 1 (registered flag)
+    mapping(bytes32 => uint256) public slots;
 
     error InvalidSignatureType();
     error SlotAlreadyRegistered();
@@ -75,15 +79,15 @@ contract JardinAccount is BaseAccount {
     /// Signature layout (both types):
     ///   [type 1B][ecdsaSig 65B][...PQ payload...]
     ///
-    /// Type 1 PQ payload: [r 32B][subPkSeed 16B][subPkRoot 16B][C11 sig ~4008B]
-    /// Type 2 PQ payload: [H(r) 32B][subPkSeed 16B][subPkRoot 16B][FORS+C sig]
-    ///   FORS+C sig length = 2212 + q*16; q derived by verifier from sig length.
+    /// Type 1 PQ payload: [subPkSeed 16B][subPkRoot 16B][C11 sig ~4008B]
+    ///   subSeed==0 && subRoot==0 ⇒ stateless fallback (skip registration).
+    /// Type 2 PQ payload: [subPkSeed 16B][subPkRoot 16B][FORS+C sig 2565B]
     function _validateSignature(
         PackedUserOperation calldata userOp,
         bytes32 userOpHash
     ) internal override returns (uint256 validationData) {
         bytes calldata sig = userOp.signature;
-        require(sig.length > 130, InvalidSignatureType());
+        require(sig.length > 98, InvalidSignatureType());
 
         uint8 sigType = uint8(sig[0]);
 
@@ -94,46 +98,38 @@ contract JardinAccount is BaseAccount {
         }
 
         bytes calldata pq = sig[66:];
+        bytes16 subSeed = bytes16(pq[0:16]);
+        bytes16 subRoot = bytes16(pq[16:32]);
 
         if (sigType == 0x01) {
             // ── Type 1: ECDSA + C11 stateless + optional sub-key registration ──
-            bytes32 r       = bytes32(pq[0:32]);
-            bytes16 subSeed = bytes16(pq[32:48]);
-            bytes16 subRoot = bytes16(pq[48:64]);
-
             (bool ok, bytes memory res) = c11Verifier.staticcall(
                 abi.encodeWithSignature(
                     "verify(bytes32,bytes32,bytes32,bytes)",
-                    masterPkSeed, masterPkRoot, userOpHash, pq[64:]
+                    masterPkSeed, masterPkRoot, userOpHash, pq[32:]
                 )
             );
             if (!ok || res.length < 32 || !abi.decode(res, (bool))) {
                 return SIG_VALIDATION_FAILED;
             }
 
-            if (r != bytes32(0)) {
-                bytes32 key = keccak256(abi.encodePacked(r));
-                require(slots[key] == bytes32(0), SlotAlreadyRegistered());
-                slots[key] = keccak256(abi.encodePacked(subSeed, subRoot));
+            if (subSeed != bytes16(0) || subRoot != bytes16(0)) {
+                bytes32 key = keccak256(abi.encodePacked(subSeed, subRoot));
+                require(slots[key] == 0, SlotAlreadyRegistered());
+                slots[key] = 1;
             }
 
         } else if (sigType == 0x02) {
             // ── Type 2: ECDSA + FORS+C compact ──
-            // q is derived from signature length by the verifier.
-            // No on-chain counter — FORS+C tolerates r=2 at 112-bit security.
-            bytes32 key     = bytes32(pq[0:32]);
-            bytes16 subSeed = bytes16(pq[32:48]);
-            bytes16 subRoot = bytes16(pq[48:64]);
-
-            require(
-                keccak256(abi.encodePacked(subSeed, subRoot)) == slots[key],
-                UnregisteredSlot()
-            );
+            // q is encoded as a 1-byte field inside the FORS+C signature.
+            // No on-chain counter — FORS+C tolerates r=2 at 105-bit security.
+            bytes32 key = keccak256(abi.encodePacked(subSeed, subRoot));
+            require(slots[key] != 0, UnregisteredSlot());
 
             (bool ok, bytes memory res) = forscVerifier.staticcall(
                 abi.encodeWithSignature(
-                    "verifyForsCUnbalanced(bytes32,bytes32,bytes32,bytes)",
-                    bytes32(subSeed), bytes32(subRoot), userOpHash, pq[64:]
+                    "verifyForsC(bytes32,bytes32,bytes32,bytes)",
+                    bytes32(subSeed), bytes32(subRoot), userOpHash, pq[32:]
                 )
             );
             if (!ok || res.length < 32 || !abi.decode(res, (bool))) {

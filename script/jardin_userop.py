@@ -23,9 +23,8 @@ from signer import (
     _build_hypertree_d2, build_subtree_root, eprint, VARIANTS
 )
 from jardin_signer import (
-    jardin_derive_keys, build_unbalanced_tree, jardin_grind_and_sign,
-    get_unbalanced_auth_path, jardin_sentinel, N, K, A, A_MASK,
-    th, make_adrs, th_pair, th_multi
+    jardin_derive_keys, build_balanced_tree, jardin_sign, Q_MAX,
+    N, K, A, A_MASK, th, make_adrs, th_pair, th_multi
 )
 from eth_abi import encode, decode
 from eth_account import Account
@@ -36,9 +35,10 @@ from eth_account import Account
 
 ENTRYPOINT_V09 = "0x433709009B8330FDa32311DF1C2AFA402eD8D009"
 C11_VERIFIER = "0xC25ef566884DC36649c3618EEDF66d715427Fd74"
-FORSC_VERIFIER = "0xFAFcbEfa48795E3C05b2ee2Df305B8685A839d9E"
-JARDIN_FACTORY = "0xFF3cF63De35e5aa3382A2086b7E0C96031607d52"
+FORSC_VERIFIER = "0xef0f8def0caef9863b4061d6f2397d7d57c9bdfc"
+JARDIN_FACTORY = "0x9ff19a7d8e438b59f1f0f892caa004784f491e65"
 CHAIN_ID = 11155111
+BUNDLER_URL = "https://api.candide.dev/public/v3/11155111"
 
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".jardin_state.json")
 
@@ -123,16 +123,16 @@ def generate_master_c11_keys(entropy_int):
     eprint(f"  C11 pkRoot done: {time.time()-t0:.1f}s")
     return seed, sk_seed, pk_root
 
-def generate_sub_keys(master_sk_seed, q_max=95, slot_gen=1):
+def generate_sub_keys(master_sk_seed, slot_gen=1):
     """Generate JARDÍN sub-key from master secret. slot_gen differentiates key generations."""
     # Derive sub-key material from master
     sub_entropy = keccak256(to_b32(master_sk_seed) + b"jardin_device_" + str(slot_gen).encode())
     sub_pk_seed = keccak256(b"jardin_pk_seed" + to_b32(sub_entropy)) & N_MASK
     sub_sk_seed = keccak256(b"jardin_sk_seed" + to_b32(sub_entropy))
 
-    eprint(f"  Building JARDÍN unbalanced tree (Q_MAX={q_max})...")
-    fors_pks, spine, sent, sub_pk_root = build_unbalanced_tree(sub_pk_seed, sub_sk_seed, q_max)
-    return sub_pk_seed, sub_sk_seed, sub_pk_root, fors_pks, spine, sent
+    eprint(f"  Building JARDÍN balanced tree (Q_MAX={Q_MAX})...")
+    levels, sub_pk_root = build_balanced_tree(sub_pk_seed, sub_sk_seed)
+    return sub_pk_seed, sub_sk_seed, sub_pk_root, levels
 
 # ============================================================
 #  UserOp Construction
@@ -231,7 +231,7 @@ def cmd_deploy():
     eprint(f"  ECDSA owner: {ecdsa_acct.address}")
 
     # Deterministic entropy from private key
-    entropy = keccak256(bytes.fromhex(ecdsa_key) + b"jardin_master_v5_q95")
+    entropy = keccak256(bytes.fromhex(ecdsa_key) + b"jardin_master_v6_h7")
 
     # Generate master C11 keys
     master_seed, master_sk, master_root = generate_master_c11_keys(entropy)
@@ -239,7 +239,7 @@ def cmd_deploy():
     eprint(f"  masterPkRoot: {to_hex(master_root)[:18]}...")
 
     # Generate sub-keys
-    sub_seed, sub_sk, sub_root, fors_pks, spine, sent = generate_sub_keys(master_sk, q_max=95)
+    sub_seed, sub_sk, sub_root, _levels = generate_sub_keys(master_sk)
     eprint(f"  subPkSeed: {to_hex(sub_seed)[:18]}...")
     eprint(f"  subPkRoot: {to_hex(sub_root)[:18]}...")
 
@@ -281,9 +281,6 @@ def cmd_deploy():
     else:
         eprint("  Funding may have failed, continuing...")
 
-    # Random slot ID for sub-key registration
-    r_slot = keccak256(to_b32(master_sk) + b"jardin_slot_r_1")
-
     # Save state
     state = {
         "account": account_addr,
@@ -292,8 +289,7 @@ def cmd_deploy():
         "master_entropy": to_hex(entropy),
         "sub_seed": to_hex(sub_seed),
         "sub_root": to_hex(sub_root),
-        "r_slot": to_hex(r_slot),
-        "q_max": 95,
+        "q_max": Q_MAX,
         "next_q": 1,
         "slot_gen": 1,
     }
@@ -323,24 +319,21 @@ def cmd_type1():
 
     # Check if we need a fresh sub-key (tree exhausted or first registration)
     slot_gen = state.get("slot_gen", 1)
-    if state.get("next_q", 1) > state.get("q_max", 95):
+    if state.get("next_q", 1) > state.get("q_max", Q_MAX):
         slot_gen += 1
         eprint(f"  FORS+C tree exhausted — generating fresh sub-key (gen={slot_gen})...")
-        sub_seed, sub_sk, sub_root, _, _, _ = generate_sub_keys(master_sk, q_max=95, slot_gen=slot_gen)
-        r_slot = keccak256(to_b32(master_sk) + b"jardin_slot_r_" + str(slot_gen).encode())
+        sub_seed, sub_sk, sub_root, _levels = generate_sub_keys(master_sk, slot_gen=slot_gen)
         state["sub_seed"] = to_hex(sub_seed)
         state["sub_root"] = to_hex(sub_root)
-        state["r_slot"] = to_hex(r_slot)
         state["next_q"] = 1
         state["slot_gen"] = slot_gen
-        state["q_max"] = 95
+        state["q_max"] = Q_MAX
         eprint(f"  New subPkRoot: {to_hex(sub_root)[:18]}...")
     else:
         eprint(f"  Using existing sub-key (gen={slot_gen})")
 
     sub_seed_int = int(state["sub_seed"], 16)
     sub_root_int = int(state["sub_root"], 16)
-    r_slot = int(state["r_slot"], 16)
 
     # Get nonce
     nonce_hex = cast(
@@ -376,12 +369,11 @@ def cmd_type1():
                  signed.v.to_bytes(1, "big"))
     eprint(f"  ECDSA sig: {len(ecdsa_sig)} bytes (owner={ecdsa_acct.address})")
 
-    # Pack Type 1 signature: [0x01][ecdsaSig 65B][r 32B][subPkSeed 16B][subPkRoot 16B][c11_sig]
+    # Pack Type 1 signature: [0x01][ecdsaSig 65B][subPkSeed 16B][subPkRoot 16B][c11_sig]
     sub_seed_bytes = (sub_seed_int >> 128).to_bytes(16, "big")
     sub_root_bytes = (sub_root_int >> 128).to_bytes(16, "big")
     type1_sig = bytes([0x01])
     type1_sig += ecdsa_sig
-    type1_sig += r_slot.to_bytes(32, "big")
     type1_sig += sub_seed_bytes
     type1_sig += sub_root_bytes
     type1_sig += c11_sig_bytes
@@ -420,7 +412,6 @@ def cmd_type2():
     account = state["account"]
     sub_seed_int = int(state["sub_seed"], 16)
     sub_root_int = int(state["sub_root"], 16)
-    r_slot = int(state["r_slot"], 16)
     q_max = state["q_max"]
     q_leaf = state.get("next_q", 1)
     slot_gen = state.get("slot_gen", 1)
@@ -435,10 +426,10 @@ def cmd_type2():
     sub_entropy = keccak256(to_b32(master_sk) + b"jardin_device_" + str(slot_gen).encode())
     sub_sk_seed = keccak256(b"jardin_sk_seed" + to_b32(sub_entropy))
 
-    # Rebuild unbalanced tree (needed for auth path)
-    eprint(f"  Rebuilding unbalanced tree (q_max={q_max})...")
+    # Rebuild balanced tree (needed for auth path)
+    eprint(f"  Rebuilding balanced tree (Q_MAX={Q_MAX})...")
     sub_pk_seed = sub_seed_int
-    fors_pks, spine, sent, sub_pk_root = build_unbalanced_tree(sub_pk_seed, sub_sk_seed, q_max)
+    levels, sub_pk_root = build_balanced_tree(sub_pk_seed, sub_sk_seed)
     assert sub_pk_root == sub_root_int, "Sub-key root mismatch!"
 
     # Get nonce
@@ -462,14 +453,8 @@ def cmd_type2():
 
     # Sign with FORS+C
     eprint(f"  Signing with FORS+C (q={q_leaf})...")
-    fors_sig, R, counter, digest = jardin_grind_and_sign(
-        sub_pk_seed, sub_sk_seed, sub_pk_root, user_op_hash_int, q_leaf)
-    unb_auth = get_unbalanced_auth_path(fors_pks, spine, sent, q_leaf, q_max)
-
-    # Full FORS+C sig
-    forsc_sig = fors_sig
-    for node in unb_auth:
-        forsc_sig += to_b32(node)[:N]
+    forsc_sig, R, counter, digest = jardin_sign(
+        sub_pk_seed, sub_sk_seed, sub_pk_root, levels, user_op_hash_int, q_leaf)
     eprint(f"  FORS+C sig: {len(forsc_sig)} bytes")
 
     # ECDSA sign the userOpHash
@@ -482,14 +467,12 @@ def cmd_type2():
                  signed.v.to_bytes(1, "big"))
     eprint(f"  ECDSA sig: {len(ecdsa_sig)} bytes (owner={ecdsa_acct.address})")
 
-    # Pack Type 2 signature: [0x02][ecdsaSig 65B][H(r) 32B][subPkSeed 16B][subPkRoot 16B][forsc_sig]
-    h_r = keccak256(r_slot.to_bytes(32, "big")).to_bytes(32, "big")
+    # Pack Type 2 signature: [0x02][ecdsaSig 65B][subPkSeed 16B][subPkRoot 16B][forsc_sig]
     sub_seed_bytes = (sub_seed_int >> 128).to_bytes(16, "big")
     sub_root_bytes = (sub_root_int >> 128).to_bytes(16, "big")
 
     type2_sig = bytes([0x02])
     type2_sig += ecdsa_sig
-    type2_sig += h_r
     type2_sig += sub_seed_bytes
     type2_sig += sub_root_bytes
     type2_sig += forsc_sig
@@ -519,9 +502,213 @@ def cmd_type2():
         sys.exit(1)
 
 
+def _bundler_rpc(method, params):
+    import requests
+    r = requests.post(BUNDLER_URL, json={
+        "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+    }, timeout=60)
+    return r.json()
+
+def submit_via_bundler(uop):
+    """Submit a UserOp via the Candide bundler (eth_sendUserOperation),
+    then poll eth_getUserOperationReceipt for confirmation.
+    Returns (ok: bool, actualGasCost_wei: int, tx_hash: str|None)."""
+    # EntryPoint 0.9 uses a flat PackedUserOperation format; bundler expects
+    # the standard v0.7-style fields expanded. Convert.
+    vg = int(uop["accountGasLimits"][2:][:32], 16)
+    cg = int(uop["accountGasLimits"][2:][32:], 16)
+    mpfpg = int(uop["gasFees"][2:][:32], 16)
+    mfpg = int(uop["gasFees"][2:][32:], 16)
+    payload = {
+        "sender": uop["sender"],
+        "nonce": uop["nonce"],
+        "callData": uop["callData"],
+        "callGasLimit": hex(cg),
+        "verificationGasLimit": hex(vg),
+        "preVerificationGas": uop["preVerificationGas"],
+        "maxPriorityFeePerGas": hex(mpfpg),
+        "maxFeePerGas": hex(mfpg),
+        "signature": uop["signature"],
+    }
+    if uop.get("initCode", "0x") != "0x":
+        payload["factory"] = "0x" + uop["initCode"][2:][:40]
+        payload["factoryData"] = "0x" + uop["initCode"][2:][40:]
+    if uop.get("paymasterAndData", "0x") != "0x":
+        payload["paymaster"] = "0x" + uop["paymasterAndData"][2:][:40]
+    resp = _bundler_rpc("eth_sendUserOperation", [payload, ENTRYPOINT_V09])
+    if "error" in resp:
+        eprint(f"  bundler error: {resp['error'].get('message','?')[:200]}")
+        return False, 0, None
+    uop_hash = resp.get("result")
+    if not uop_hash:
+        return False, 0, None
+    # Poll the receipt (up to ~60s)
+    import time as _time
+    for _ in range(30):
+        _time.sleep(2)
+        r = _bundler_rpc("eth_getUserOperationReceipt", [uop_hash])
+        rec = r.get("result")
+        if rec:
+            success = rec.get("success", False)
+            actual_cost = int(rec.get("actualGasCost", "0x0"), 16)
+            tx_hash = rec.get("receipt", {}).get("transactionHash")
+            return bool(success), actual_cost, tx_hash
+    return False, 0, None
+
+
+def cmd_cycle():
+    """Full slot lifecycle on Sepolia 4337 — builds each tree once and reuses
+    it across all Q_MAX compact signatures. Respects the state file's current
+    slot_gen and next_q, so it can resume after a partial run."""
+    from jardin_signer import jardin_sign
+
+    eprint(f"=== Full 4337 cycle ===")
+
+    with open(STATE_FILE) as f:
+        state = json.load(f)
+
+    env = load_env()
+    account = state["account"]
+    master_seed_int = int(state["master_seed"], 16)
+    master_root_int = int(state["master_root"], 16)
+    master_entropy = int(state["master_entropy"], 16)
+    _, master_sk = derive_keys(master_entropy)
+
+    ecdsa_key = env["PRIVATE_KEY"].replace("0x", "")
+    ecdsa_acct = Account.from_key(bytes.fromhex(ecdsa_key))
+    gas_log = []
+
+    SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
+
+    def _ecdsa_sign(h):
+        s = ecdsa_acct.unsafe_sign_hash(h)
+        r_val, s_val, v = s.r, s.s, s.v
+        # Canonicalize to low-s form (OpenZeppelin ECDSA rejects s > N/2).
+        if s_val > SECP256K1_N // 2:
+            s_val = SECP256K1_N - s_val
+            v = 28 if v == 27 else 27
+        return (r_val.to_bytes(32, "big") + s_val.to_bytes(32, "big") +
+                v.to_bytes(1, "big"))
+
+    # Seed the UserOp nonce from on-chain once, then track locally —
+    # Ankr's load-balanced RPC sometimes returns stale reads right after
+    # a confirmed tx, which causes nonce collisions ("AA25").
+    _h = cast("call", ENTRYPOINT_V09, "getNonce(address,uint192)(uint256)",
+              account, "0", "--rpc-url", env["SEPOLIA_RPC_URL"])
+    _uop_nonce = [int(_h.strip(), 10) if _h and not _h.strip().startswith("0x")
+                  else int(_h.strip(), 16) if _h else 0]
+    eprint(f"  Initial UserOp nonce: {_uop_nonce[0]}")
+
+    def _nonce():
+        return _uop_nonce[0]
+
+    def _advance_nonce():
+        _uop_nonce[0] += 1
+
+    def _run(label, sig_bytes, ver_gas):
+        call_data = build_execute_calldata(account, 0)
+        uop = build_user_op(account, _nonce(), "0x" + call_data.hex(), ver_gas=ver_gas)
+        uop["signature"] = "0x" + sig_bytes.hex()
+        result = submit_handle_ops(uop)
+        gas = 0
+        status = ""
+        if result:
+            for line in result.split("\n"):
+                if "gasUsed" in line: gas = int(line.split()[-1])
+                if line.strip().startswith("status") and "(" in line:
+                    status = line.split()[-1].strip("()")
+        ok = status == "success"
+        marker = "OK" if ok else "FAIL"
+        print(f"  {label:40s} gas={gas:>7} {marker}", flush=True)
+        gas_log.append({"label": label, "gas": gas, "ok": ok})
+        return ok
+
+    def _build_uop_hash(ver_gas):
+        call_data = build_execute_calldata(account, 0)
+        uop = build_user_op(account, _nonce(), "0x" + call_data.hex(), ver_gas=ver_gas)
+        h = pack_user_op_hash(uop)
+        return uop, h
+
+    def _type1(label, ss_b, sr_b, ver_gas=250_000):
+        uop, h = _build_uop_hash(ver_gas)
+        ecdsa = _ecdsa_sign(h)
+        c11 = sign_with_known_keys("c11", int.from_bytes(h, "big"),
+                                    master_seed_int, master_sk, master_root_int)
+        sig = bytes([0x01]) + ecdsa + ss_b + sr_b + c11
+        uop["signature"] = "0x" + sig.hex()
+        ok, cost, tx_hash = submit_via_bundler(uop)
+        if ok: _advance_nonce()
+        print(f"  {label:40s} cost={cost:>15} wei  {'OK' if ok else 'FAIL'}"
+              + (f"  tx={tx_hash[:18]}..." if tx_hash else ""), flush=True)
+        gas_log.append({"label": label, "cost": cost, "ok": ok, "tx": tx_hash})
+        return ok
+
+    def _type2(q, sub_seed, sub_sk, sub_root, levels, ss_b, sr_b, ver_gas=220_000):
+        uop, h = _build_uop_hash(ver_gas)
+        ecdsa = _ecdsa_sign(h)
+        forsc, _, _, _ = jardin_sign(sub_seed, sub_sk, sub_root, levels,
+                                      int.from_bytes(h, "big"), q)
+        sig = bytes([0x02]) + ecdsa + ss_b + sr_b + forsc
+        uop["signature"] = "0x" + sig.hex()
+        ok, cost, tx_hash = submit_via_bundler(uop)
+        if ok: _advance_nonce()
+        label = f"Type2 q={q} (slot {state.get('slot_gen', 1)})"
+        print(f"  {label:40s} cost={cost:>15} wei  {'OK' if ok else 'FAIL'}"
+              + (f"  tx={tx_hash[:18]}..." if tx_hash else ""), flush=True)
+        gas_log.append({"label": label, "cost": cost, "ok": ok, "tx": tx_hash})
+        return ok
+
+    # ─── Finish current slot ──────────────────────────────────────────
+    slot_gen = state.get("slot_gen", 1)
+    next_q = state.get("next_q", 1)
+    sub_seed = int(state["sub_seed"], 16)
+    sub_root = int(state["sub_root"], 16)
+    eprint(f"\n[SLOT {slot_gen}] Resuming — rebuilding tree (q={next_q}..{Q_MAX})...")
+
+    sub_ent = keccak256(to_b32(master_sk) + b"jardin_device_" + str(slot_gen).encode())
+    sub_sk = keccak256(b"jardin_sk_seed" + to_b32(sub_ent))
+    t0 = time.time()
+    from jardin_signer import build_balanced_tree
+    levels, rebuilt = build_balanced_tree(sub_seed, sub_sk)
+    eprint(f"  Keygen: {time.time()-t0:.1f}s  (root match: {rebuilt == sub_root})")
+    ss_b = (sub_seed >> 128).to_bytes(16, "big")
+    sr_b = (sub_root >> 128).to_bytes(16, "big")
+
+    for q in range(next_q, Q_MAX + 1):
+        _type2(q, sub_seed, sub_sk, sub_root, levels, ss_b, sr_b)
+        state["next_q"] = q + 1
+        with open(STATE_FILE, "w") as f: json.dump(state, f, indent=2)
+
+    # ─── Re-register to slot_gen+1, then one compact tx ───────────────
+    slot_gen += 1
+    eprint(f"\n[SLOT {slot_gen}] Fresh sub-key + tree...")
+    sub_seed, sub_sk, sub_root, levels = generate_sub_keys(master_sk, slot_gen=slot_gen)
+    ss_b = (sub_seed >> 128).to_bytes(16, "big")
+    sr_b = (sub_root >> 128).to_bytes(16, "big")
+    state["sub_seed"] = to_hex(sub_seed)
+    state["sub_root"] = to_hex(sub_root)
+    state["slot_gen"] = slot_gen
+    state["next_q"] = 1
+    with open(STATE_FILE, "w") as f: json.dump(state, f, indent=2)
+
+    _type1(f"Type1 re-register (slot {slot_gen})", ss_b, sr_b)
+    state["next_q"] = 2
+    _type2(1, sub_seed, sub_sk, sub_root, levels, ss_b, sr_b)
+    with open(STATE_FILE, "w") as f: json.dump(state, f, indent=2)
+
+    # ─── Summary ──────────────────────────────────────────────────────
+    ok = sum(1 for g in gas_log if g["ok"])
+    fail = len(gas_log) - ok
+    print(f"\n{'='*50}\nTotal: {len(gas_log)}  Success: {ok}  Failed: {fail}")
+    t1 = [g["cost"] for g in gas_log if "Type1" in g["label"] and g["ok"]]
+    t2 = [g["cost"] for g in gas_log if "Type2" in g["label"] and g["ok"]]
+    if t1: print(f"Type 1 actualGasCost: min={min(t1)} max={max(t1)} avg={sum(t1)//len(t1)} wei")
+    if t2: print(f"Type 2 actualGasCost: min={min(t2)} max={max(t2)} avg={sum(t2)//len(t2)} wei")
+
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 jardin_userop.py [deploy|type1|type2|both]")
+        print("Usage: python3 jardin_userop.py [deploy|type1|type2|both|cycle]")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -538,6 +725,9 @@ def main():
         cmd_type1()
         time.sleep(5)  # Wait for Type 1 to confirm (slot registration)
         cmd_type2()
+    elif cmd == "cycle":
+        # Full slot lifecycle: Type1 register → Q_MAX × Type2 → Type1 re-register → Type2
+        cmd_cycle()
     else:
         print(f"Unknown command: {cmd}")
         sys.exit(1)

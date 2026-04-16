@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
 JARDÍN Frame Account — full lifecycle on Sepolia.
-Type 1 register → Type 1 emergency → 58×Type 2 → Type 1 register (new slot)
+Type 1 register → Type 1 emergency → Q_MAX×Type 2 → Type 1 register (new slot)
 
-Q_MAX=58: all compact sigs fit in one slot, no mid-cycle rotation.
-62 total transactions.
+Balanced h=7 tree: Q_MAX=128 compact sigs per slot.
 """
 
 import sys, os, time, subprocess
@@ -12,9 +11,8 @@ import sys, os, time, subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from signer import (sign_with_known_keys, derive_keys, keccak256, to_b32,
                     _build_hypertree_d2, VARIANTS, N_MASK)
-from jardin_signer import (build_unbalanced_tree, jardin_grind_and_sign,
-                            get_unbalanced_auth_path, jardin_sentinel,
-                            N, K, A, Q_MAX, FORSC_BODY, to_b4)
+from jardin_signer import (build_balanced_tree, jardin_sign,
+                            N, K, A, Q_MAX, FORSC_BODY, FORSC_SIG_LEN, to_b4)
 
 FRAME_ACCOUNT = "0xbb7b6e20ea0dc7888e69a4eee27a9ec94ef5400f"
 
@@ -54,34 +52,28 @@ def make_sub(sk, gen=1):
     sub_ent = keccak256(to_b32(sk) + b"jardin_device_" + str(gen).encode())
     sub_pk = keccak256(b"jardin_pk_seed" + to_b32(sub_ent)) & N_MASK
     sub_sk = keccak256(b"jardin_sk_seed" + to_b32(sub_ent))
-    print(f"  Building FORS+C tree (gen={gen}, Q_MAX={Q_MAX})...", file=sys.stderr)
+    print(f"  Building balanced FORS+C tree (gen={gen}, Q_MAX={Q_MAX})...", file=sys.stderr)
     t0 = time.time()
-    fors_pks, spine, sent, sub_root = build_unbalanced_tree(sub_pk, sub_sk, Q_MAX)
+    levels, sub_root = build_balanced_tree(sub_pk, sub_sk)
     print(f"  Keygen done: {time.time()-t0:.1f}s", file=sys.stderr)
-    r_slot = keccak256(to_b32(sk) + b"jardin_slot_r_" + str(gen).encode())
-    return sub_pk, sub_sk, sub_root, fors_pks, spine, sent, r_slot
+    return sub_pk, sub_sk, sub_root, levels
 
 def msg(i):
     return keccak256(b"jardin_frame_msg" + i.to_bytes(4, "big"))
 
-def sig_type1_register(seed, sk, root, sub_pk, sub_root, r_slot, m):
+def sig_type1_register(seed, sk, root, sub_pk, sub_root, m):
     c11 = sign_with_known_keys("c11", m, seed, sk, root)
-    return (bytes([0x01]) + r_slot.to_bytes(32, "big") +
+    return (bytes([0x01]) +
             (sub_pk >> 128).to_bytes(16, "big") +
             (sub_root >> 128).to_bytes(16, "big") + c11)
 
 def sig_type1_emergency(seed, sk, root, m):
     c11 = sign_with_known_keys("c11", m, seed, sk, root)
-    return bytes([0x01]) + bytes(32) + bytes(16) + bytes(16) + c11
+    return bytes([0x01]) + bytes(16) + bytes(16) + c11
 
-def sig_type2(sub_pk, sub_sk, sub_root, r_slot, q, fors_pks, spine, sent, m):
-    fors_sig, _, _, _ = jardin_grind_and_sign(sub_pk, sub_sk, sub_root, m, q)
-    auth = get_unbalanced_auth_path(fors_pks, spine, sent, q, Q_MAX)
-    forsc = fors_sig
-    for node in auth:
-        forsc += to_b32(node)[:N]
-    h_r = keccak256(r_slot.to_bytes(32, "big")).to_bytes(32, "big")
-    return (bytes([0x02]) + h_r +
+def sig_type2(sub_pk, sub_sk, sub_root, q, levels, m):
+    forsc, _, _, _ = jardin_sign(sub_pk, sub_sk, sub_root, levels, m, q)
+    return (bytes([0x02]) +
             (sub_pk >> 128).to_bytes(16, "big") +
             (sub_root >> 128).to_bytes(16, "big") + forsc)
 
@@ -108,22 +100,22 @@ def main():
 
     # ── SLOT 1: Register ──
     print("========== SLOT 1: REGISTER ==========")
-    sub_pk, sub_sk, sub_root, fps, sp, sn, r1 = make_sub(sk, 1)
-    send("Type1 register (slot 1)", msg(1), sig_type1_register(seed, sk, root, sub_pk, sub_root, r1, msg(1)))
+    sub_pk, sub_sk, sub_root, levels = make_sub(sk, 1)
+    send("Type1 register (slot 1)", msg(1), sig_type1_register(seed, sk, root, sub_pk, sub_root, msg(1)))
 
-    # ── Emergency ──
-    print("\n========== EMERGENCY (r=0) ==========")
-    send("Type1 emergency (r=0)", msg(2), sig_type1_emergency(seed, sk, root, msg(2)))
+    # ── Stateless fallback ──
+    print("\n========== STATELESS FALLBACK ==========")
+    send("Type1 stateless (sub=0)", msg(2), sig_type1_emergency(seed, sk, root, msg(2)))
 
-    # ── 58 compact sigs ──
+    # ── Q_MAX compact sigs ──
     print(f"\n========== SLOT 1: TYPE 2 q=1..{Q_MAX} ==========")
     for q in range(1, Q_MAX + 1):
-        send(f"Type2 q={q}", msg(100 + q), sig_type2(sub_pk, sub_sk, sub_root, r1, q, fps, sp, sn, msg(100 + q)))
+        send(f"Type2 q={q}", msg(100 + q), sig_type2(sub_pk, sub_sk, sub_root, q, levels, msg(100 + q)))
 
     # ── SLOT 2: Register (final) ──
     print("\n========== SLOT 2: REGISTER ==========")
-    sub_pk2, sub_sk2, sub_root2, _, _, _, r2 = make_sub(sk, 2)
-    send("Type1 register (slot 2)", msg(200), sig_type1_register(seed, sk, root, sub_pk2, sub_root2, r2, msg(200)))
+    sub_pk2, _sub_sk2, sub_root2, _levels2 = make_sub(sk, 2)
+    send("Type1 register (slot 2)", msg(200), sig_type1_register(seed, sk, root, sub_pk2, sub_root2, msg(200)))
 
     # ── Summary ──
     print("\n========== SUMMARY ==========")
@@ -137,9 +129,9 @@ def main():
         print(f"Type 1: min={min(t1g)} max={max(t1g)} avg={sum(t1g)//len(t1g)}")
     if t2g:
         print(f"Type 2: min={min(t2g)} max={max(t2g)} avg={sum(t2g)//len(t2g)}")
-        print(f"  q=1:  {t2g[0]} gas")
-        print(f"  q=32: {t2g[31] if len(t2g)>31 else 'N/A'} gas")
-        print(f"  q=58: {t2g[-1]} gas")
+        print(f"  q=1:   {t2g[0]} gas")
+        print(f"  q=64:  {t2g[63] if len(t2g)>63 else 'N/A'} gas")
+        print(f"  q={Q_MAX}: {t2g[-1]} gas")
 
 if __name__ == "__main__":
     main()
