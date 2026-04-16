@@ -12,7 +12,9 @@
 
 ---
 
-Post-quantum signature verification on Ethereum using SPHINCs- — lightweight hash-based signatures derived from SPHINCS+. Supports JARDÍN hybrid accounts (ECDSA + SPHINCs-), stateless ERC-4337 accounts, and native EIP-8141 frame transaction accounts (pure PQ).
+Post-quantum signature verification on Ethereum using SPHINCs- — lightweight hash-based signatures derived from SPHINCS+. Supports JARDÍN hybrid accounts (ECDSA + SPHINCs-) with a balanced-tree FORS+C compact path, stateless ERC-4337 accounts, and native EIP-8141 frame transaction accounts (pure PQ).
+
+For the full JARDÍN design write-up, see [`writeUp.md`](./writeUp.md).
 
 ---
 
@@ -102,13 +104,12 @@ cargo test --release -- --ignored  # 9/9 tests
 ## Deployed Contracts & Transactions
 
 EntryPoint v0.9: `0x433709009B8330FDa32311DF1C2AFA402eD8D009` (Sepolia)
- 
+
 ### Sepolia (ERC-4337 Hybrid)
 
 | Variant | Verifier | Account | Gas | Tx |
 |---|---|---|---|---|
 | C9 | [`0x18F005...`](https://sepolia.etherscan.io/address/0x18F005EECd41624644AA364bA8857258FEB3C26D) | [`0xA94111...`](https://sepolia.etherscan.io/address/0xA941116763AE386a50133c5af40356c9D93b2978) | 300K | [`0x8366513b...`](https://sepolia.etherscan.io/tx/0x8366513b096ee53dd1cb105363ab21a52267dd966b822b4bb2cf5492abf1550f) |
-
 | C11 | [`0xC25ef5...`](https://sepolia.etherscan.io/address/0xC25ef566884DC36649c3618EEDF66d715427Fd74) | [`0x3C3b0c...`](https://sepolia.etherscan.io/address/0x3C3b0c3498E5ed9350F6fBFA0Ef8dC55f524eA50) | 308K | [`0x9fba169c...`](https://sepolia.etherscan.io/tx/0x9fba169ca76b6712586e44e1a4a2d0407b8b8b9ce767272a193e41a756260b74) |
 
 ### ethrex Testnet (EIP-8141 Frame Tx — Pure PQ)
@@ -160,213 +161,249 @@ cd signer-wasm && cargo test --release -- --ignored
 
 ### Verified Kernel
 
-This will include a proof with verity 
+This will include a proof with verity.
 
+---
 
+# JARDÍN — Compact + Stateless Hybrid Account
 
+**JARDÍN** (Judicious Authentication from Random-subset Domain-separated Indexed Nodes) is a post-quantum smart account that combines the stateless SPHINCs- scheme with a second verifier — a **balanced Merkle tree** of FORS+C few-time instances (height `h=7`, `Q_MAX=128`) on the "compact" lane. Together they form a two-lane architecture:
 
+1. **Register once** — one expensive stateless SPHINCs- C11 signature opens a "slot": a lane of 128 cheap signatures.
+2. **Use the lane** — every subsequent transaction uses a compact FORS+C signature at **constant** ~49K verify gas regardless of `q`.
+3. **Lane exhausted?** — after 128 uses the device generates a fresh random `r`, derives a new sub-key, and registers a new slot. The old lane is done; the new one starts fresh.
 
-## JARDÍN — Compact + Stateless Hybrid Account
-
-**JARDÍN** (Judicious Authentication from Random-subset Domain-separated Indexed Nodes) is a post-quantum smart account. It combines the stateless SPHINCs- scheme with a second verifier — a balanced Merkle tree of FORS+C instances (height h=7, Q_MAX=128) on the "compact" lane. Together they form a multi-lane architecture:
-
-1. **Register once** — sign one expensive stateless SPHINCs- C11 signature to open a "slot" (a lane of 128 cheap signatures)
-2. **Use the lane** — every subsequent transaction uses a compact FORS+C few-time signature at constant ~49K verify gas (any q)
-3. **Lane exhausted?** — after 128 uses, register a new slot. The old lane is done; the new one starts fresh
-
-This gives you **128 cheap transactions for every 1 expensive registration**. A regular user rotating slots every 128 txs pays the stateless price less than 1% of the time. The stateless C11 fallback is always available — no slot needed, no state needed, just the 24-word seed.
+128 cheap transactions for every 1 expensive registration. A user who rotates slots every 128 txs pays the stateless price <1 % of the time. The stateless C11 fallback is always available — no slot needed, no device state needed, just the 24-word seed.
 
 ```
-1st Tx        128 Tx                                     2nd Tx
-Register     JARDÍN (FORS+C compact, x128)               Register
-  ┌──────┐  ┌─────────────────────────────────────────┐  ┌──────┐
-  │ C11  │->│  q=1    q=2    q=3   ...   q=127  q=128 │->│ C11  │  ...
-  │ 235K │->│  119K   119K   119K  ...   119K   119K  │->│ 235K │
-  └──────┘  └─────────────────────────────────────────┘  └──────┘
-  Stateless C11 fallback: always available (209K gas)
-  Gas numbers: EIP-8141 frame transactions (ethrex). ERC-4337 adds ~56K overhead.
+ Register           JARDÍN (FORS+C compact, ×128 constant-gas)          Register        …
+  ┌──────┐  ┌─────────────────────────────────────────────────┐  ┌──────┐
+  │ C11  │→│  q=1   q=2   q=3  …  q=63  q=64  …  q=127  q=128 │→│ C11  │  …
+  │ 235K │→│  119K  119K  119K …  119K  119K  …  119K   119K  │→│ 235K │
+  └──────┘  └─────────────────────────────────────────────────┘  └──────┘
+  Stateless C11 fallback: always available (209 K gas)
+  Gas numbers: EIP-8141 frame transactions (ethrex). ERC-4337 adds ~56 K overhead.
 ```
 
 Both ERC-4337 (hybrid ECDSA + PQ on Sepolia) and EIP-8141 frame transactions (pure PQ on ethrex) are supported. The frame path uses a 67-byte hand-optimized proxy with TXPARAM-aware APPROVE.
 
+## Architecture
+
 ```
-C11 Verifier (stateless, shared)       JardinForsCVerifier (compact, shared)
-    ↑ verify(...)                           ↑ verifyForsC(...)
-    │                                       │
-    └──── Type 1 (ECDSA + C11) ────────────┘──── Type 2 (ECDSA + FORS+C)
-                       │
-                  JardinAccount (ERC-4337, hybrid)
-                  ├── owner (ECDSA, rotatable)
-                  ├── masterPkSeed, masterPkRoot (C11 identity)
-                  ├── slots: mapping(H(r) → H(subPkSeed, subPkRoot))
-                  ├── Type 1: device registration + C11 fallback (once per slot)
-                  └── Type 2: FORS+C compact path (every subsequent tx)
+SPHINCs- C11 Verifier (stateless, shared)     JardinForsCVerifier (compact, shared)
+        ↑ verify(pkSeed, pkRoot, msg, sig)             ↑ verifyForsC(subSeed, subRoot, msg, sig)
+        │                                              │
+        └────── Type 1 (ECDSA + C11) ─────────────────┘── Type 2 (ECDSA + FORS+C)
+                               │
+                     JardinAccount (ERC-4337, hybrid)
+                     ├── owner                  (ECDSA signer, rotatable)
+                     ├── masterPkSeed / masterPkRoot (C11 identity, rotatable)
+                     └── slots: mapping(keccak256(subPkSeed, subPkRoot) ⇒ uint256)
+                                     │
+                                     ├── Type 1:  registers the sub-key (slot ← 1)
+                                     │           OR acts as stateless fallback
+                                     │           when subPkSeed == subPkRoot == 0
+                                     └── Type 2:  slots[H(subPkSeed, subPkRoot)] ≠ 0
+                                                  required; no r / no H(r) on-chain
 ```
 
-### JARDIN (compact path FORS+C) Parameters
+The on-chain contract **does not know `r`**. The device-local random `r` derives the sub-key off-chain; the contract only ever sees the sub-key's public components (`subPkSeed`, `subPkRoot`), and identifies the slot by `keccak256(subPkSeed, subPkRoot)`. Since those public components are already present in every Type 2 signature for FORS+C verification, the signature carries **no extra bytes** for slot lookup.
 
-| Parameter | Value |
-|-----------|-------|
-| k (FORS trees) | 26 |
-| a (tree height) | 5 (32 leaves per tree) |
-| n (hash output) | 16 bytes (128-bit) |
-| k×a (security bits) | 130 |
-| h (balanced Merkle height) | 7 |
-| Q_MAX (leaves per slot) | 128 |
-| Keygen (Q=128) | ~316K hashes |
-| **Pure Verify cost** | **~49K** |
-| **Frame transaction** | **~119K (constant)** |
-| ERC 4337 | ~176K (constant) |
+## Compact-Path Parameters
 
-### Signature Types
+| Parameter | Value | Rationale |
+|---|---|---|
+| k (FORS trees) | 26 | k × a = 130 ≥ 128 for one-time security |
+| a (tree height) | 5 (32 leaves / tree) | Minimises signing cost (~2,600 hashes) |
+| n (hash output) | 16 bytes | 128-bit hash |
+| h (balanced Merkle height) | 7 | Q_MAX = 2^h = 128 |
+| k_open | 25 | FORS+C removes the last tree; ~32 counter grinds |
+| Keygen (per slot, 128 leaves) | ~316 K keccak | ~3 s Python / ~5 min secure element |
+| **Verifier gas (pure)** | **~49 K (constant)** | 128-bit masked keccak, balanced h = 7 walk |
+| **Frame transaction** | **~119 K (constant)** | EIP-8141 type 0x06 |
+| **ERC-4337 UserOp** | **~176 K (constant)** | EntryPoint v0.9 + ECDSA overhead |
 
-**Stateless SPHINCS- (Type 1)** — ECDSA + Stateless C11 + optional sub-key registration:
+## Signature Types
+
+**Type 1 (stateless C11 + optional registration)** — signs any message with the master C11 key, and *optionally* registers a new sub-key in the same UserOp:
 ```
-[0x01][ecdsaSig 65B][subPkSeed 16B][subPkRoot 16B][C11 sig ~3976B] = ~4,106 bytes
+[0x01][ecdsaSig 65B][subPkSeed 16B][subPkRoot 16B][C11 sig ~3,976B] ≈ 4,106 B
 ```
-If `subPkSeed == 0 && subPkRoot == 0`, registration is skipped (stateless fallback).
+If `subPkSeed == 0 && subPkRoot == 0`, registration is **skipped** — this is the stateless fallback path (always available, no slot needed).
 
-**FORS+C (Type 2)** — ECDSA + FORS+C compact via registered sub-key slot:
+**Type 2 (FORS+C compact)** — requires a registered slot:
 ```
-[0x02][ecdsaSig 65B][subPkSeed 16B][subPkRoot 16B][FORS+C sig 2565B] = ~2,663 bytes (constant)
+[0x02][ecdsaSig 65B][subPkSeed 16B][subPkRoot 16B][FORS+C body 2,452B][q 1B][merkleAuth 112B]
+                                                  └────────── FORS+C sig 2,565 B (constant) ──────────┘
+= 2,663 B total (constant across q)
 ```
-Slot key is `keccak256(subPkSeed, subPkRoot)` — no `r` or `H(r)` on-chain.
 
-The FORS+C signature is a constant ~2,598 bytes for every q (the balanced h=7 Merkle auth path is always 7 nodes = 112 bytes, plus a 1-byte explicit `q` field). After Q_MAX uses, register a new slot via Type 1.
+The FORS+C sig is **constant 2,565 bytes** for every `q`:
+- `R (32) + counter (4) + 25 × (secret 16 + auth 5×16) + lastRoot (16)` = 2,452 B FORS+C body
+- `+ q (1 byte, explicit)` — never on-chain, only in the sig; the verifier reads it directly
+- `+ 7-node Merkle auth path (7 × 16 = 112 B)` — always 7 nodes thanks to the balanced tree
 
-### Key Derivation & The Random Slot `r`
+A wrong `q` produces a wrong FORS+C public key (via `ci = q` domain separation in the FORS ADRS), which produces a wrong balanced-tree root, which fails the root check. The signer cannot lie about `q`.
 
-Everything derives from a single **24-word BIP-39 mnemonic**. The derivation splits into two independent quantum-safe paths:
+## Slot Key & Multi-Device Flow
+
+**Slot key is `keccak256(subPkSeed, subPkRoot)`** — the sub-key's public commitment. The random `r` used to derive the sub-key **never appears on-chain**.
 
 ```
 BIP-39 mnemonic (24 words)
     │
-    ├── HMAC-SHA512("sphincs-c11-v1", bip39_seed)
-    │       │
-    │       ├── masterPkSeed (16 bytes) ── on-chain, in JardinAccount
-    │       ├── masterPkRoot (16 bytes) ── on-chain, C11 hypertree root
-    │       └── masterSkSeed (32 bytes) ── secret, derives everything else
+    ├── HMAC-SHA512("sphincs-c11-v1", seed)
+    │        ├── masterPkSeed, masterPkRoot  ← on-chain C11 identity
+    │        └── masterSkSeed                ← master secret
     │
-    └── BIP-32 m/44'/60'/0'/0/0 ── ECDSA address (independent, standard Ethereum path)
+    └── BIP-32 m/44'/60'/0'/0/0             ← ECDSA signer address (independent)
+
+Per device, per slot (rotated after Q_MAX=128 compact sigs):
+    r = hardware_rng(32)                                 ← 2^256 space, P(collision) = 2^-256
+    sub_sk_seed = HMAC-SHA512(masterSkSeed, r)           ← deterministic from master + r
+    sub_pk_seed, sub_pk_root = FORS+C_keygen(sub_sk_seed)← balanced h=7 tree of 128 keys
+
+    Type 1 registers slots[keccak256(subPkSeed, subPkRoot)] ← 1   (the random r stays on-device)
 ```
 
-The **on-chain identity is the contract address** (deterministic via CREATE2 from the factory). The master C11 key authenticates Type 1 signatures and can be rotated via `rotateMasterKeys()` — the account address stays the same.
-
-**The random `r`** is where FORS+C sub-keys come from. Each device (or slot rotation) generates a fresh 32-byte random `r` using its hardware RNG:
+Why random, not derived: if `r` were `HMAC(masterSkSeed, device_index)`, two devices restored from the same 24 words would share a sub-key, and every overlapping `q` would be a double-signing event. A fresh hardware-RNG `r` per device makes sub-key collisions negligible.
 
 ```
-r = hardware_rng(32)                                    ← 2^256 space, no collision possible
-sub_sk_seed = HMAC-SHA512(masterSkSeed, r)              ← deterministic from master + r
-sub_pk_seed, sub_pk_root = FORS+C_keygen(sub_sk_seed)   ← balanced h=7 tree of Q_MAX=128 FORS+C keys
-```
-
-The contract stores `slots[keccak256(r)] = keccak256(subPkSeed, subPkRoot)`. The slot key is `H(r)`, not `r` itself — the raw `r` is only revealed once during registration (Type 1) and never reused. This means:
-
-- **`r` is ephemeral device state** — lost on backup restore, regenerated per device
-- **`H(r)` is the on-chain slot identifier** — maps to the sub-key commitment
-- **The master seed is the only backup** — 24 words recover the master key; each device generates its own `r`
-
-### Multi-Device Flow
-
-```
-WALLET CREATION (one-time):
-  1. Generate 24-word BIP-39 mnemonic
-  2. Derive master C11 keypair via HMAC-SHA512
-  3. Deploy JardinAccount via factory → contract address is your on-chain identity
-
-     The address is deterministic (CREATE2):
-       address = keccak256(0xff ‖ factory ‖ salt ‖ initCodeHash)
-       salt    = keccak256(owner ‖ masterPkSeed ‖ masterPkRoot)
-
-     Same inputs always produce the same address, even before deployment.
-     Keys can be rotated later; the address never changes.
-
 DEVICE A (first use):
-  1. Derive master keys from seed
-  2. r_A = hardware_rng(32)                                    ← random, local to device
-  3. Derive FORS+C sub-key from HMAC(masterSkSeed, r_A)
-  4. Type 1 UserOp: C11 signs + registers slots[H(r_A)]       ← 323K gas, once
-  5. Type 2 UserOps: FORS+C signs at q=1,2,...,95              ← 173K gas, every tx
-  6. Slot exhausted → new r, Type 1 registers new slot         ← 289K gas, every 95 txs
+  1. Derive master C11 keys from 24-word seed
+  2. r_A = hardware_rng(32)
+  3. Derive FORS+C sub-key (sub_pk_seed_A, sub_pk_root_A)
+  4. Type 1 UserOp: C11 signs + registers slots[H(sub_pk_seed_A, sub_pk_root_A)] ← 323K gas, once
+  5. Type 2 UserOps: FORS+C signs at q = 1, 2, …, 128                             ← 176K gas, every tx
+  6. Slot exhausted → fresh r, Type 1 registers a new slot                         ← 289K gas
 
-DEVICE B (independent, same seed):
-  1. Same master keys from same 24 words
-  2. r_B = hardware_rng(32)                                    ← different from r_A, P(collision) = 2^-256
-  3. Independent FORS+C sub-key from HMAC(masterSkSeed, r_B)
-  4. Type 1 registers slots[H(r_B)] — no coordination with Device A
-  5. Type 2 at its own q counter — fully independent
+DEVICE B (independent, same 24 words):
+  1. Same master keys
+  2. r_B = hardware_rng(32)                                                        ← different from r_A
+  3. Independent FORS+C sub-key
+  4. Type 1 registers slots[H(sub_pk_seed_B, sub_pk_root_B)] — no coord with A
+  5. Type 2 at its own q counter, fully independent
 
 DEVICE A LOST, restored on DEVICE C:
-  1. Enter 24 words → recovers master keys
-  2. r_C = hardware_rng(32)                                    ← new slot, old r_A is lost
-  3. Type 1 registers slots[H(r_C)] — orphaned slot H(r_A) is harmless
-  4. Type 2 resumes on new slot
+  1. Enter 24 words → master keys recovered
+  2. r_C = hardware_rng(32)                                                        ← new, r_A is lost
+  3. Type 1 registers slots[H(sub_pk_seed_C, sub_pk_root_C)]
+  4. Orphaned slots (A's and B's) are harmless — no attacker has their sub_sk_seed
 
 EMERGENCY (device has seed but no FORS+C state):
-  1. Type 1 with r = 0x00..0 (no registration flag)
+  1. Type 1 with subPkSeed = subPkRoot = 0 (skips registration)
   2. Pure stateless C11 sig — works immediately, no slot needed
-  3. 323K gas, 4,138 bytes — expensive but always available
+  3. ~300K gas, ~4,106 bytes — expensive but always available
 ```
 
-### Measured Gas — balanced h=7 tree, Q_MAX=128
+**Unlimited devices from a single 24-word mnemonic**: each device picks its own 256-bit random `r`, so collisions between devices occur with probability 2^-256. No inter-device coordination is needed.
 
-**Sepolia (ERC-4337 hybrid ECDSA + PQ)** and **ethrex (EIP-8141 frame tx, pure PQ)**, full slot exhaustion + re-registration. Compact-path gas is now constant across all q (balanced tree ⇒ constant 7-node auth path):
+## Anti-Rollback (Burn-Before-Sign)
 
-| Event | Sig Size | Frame (ethrex) | 4337 (Sepolia) | Frequency |
-|-------|----------|---------------|----------------|-----------|
-| Device registration (Type 1) | 4,041 / 4,138 B | **234K** | **323K** | Once per 128 txs |
-| Compact (Type 2, any q) | 2,533 / 2,598 B | **119K** | **176K** | Every tx |
-| Stateless fallback (Type 1, r=0) | 4,009 / 4,106 B | **209K** | **300K** | Emergency |
-| Re-registration (Type 1) | 4,041 / 4,138 B | **234K** | **289K** | New slot |
+Because FORS+C provides only **few-time** security, the signer must never re-use `q` for different messages. The hardware wallet implementation follows burn-before-sign:
+
+1. Host sends `SIGN_INIT(q, message_hash)`.
+2. Device shows an NBGL confirmation screen ("Sign with JARDÍN? Leaf q=N"). User approves.
+3. Device **increments `q` in NVRAM** via `nvm_write()` ← BURN.
+4. Device computes the FORS+C signature ← SIGN.
+5. Device returns the signature chunks over USB.
+
+If the device crashes after step 3, one leaf is wasted; if it crashes during step 4 or 5, `q` is still consumed and the next signature uses `q+1`. **The leaf is never signed twice** in normal operation, and FORS+C's graceful degradation (105-bit at r=2) remains a safety net for state-corruption edge cases.
+
+## Measured Gas — balanced h=7 tree, Q_MAX=128
+
+Full slot cycle (Type 1 register → 128 × Type 2 → Type 1 re-register → Type 2 in new slot) completed on both chains. Compact-path gas is **constant** across every `q` — the balanced tree has a 7-node auth path regardless of leaf index.
+
+| Event | Sig Size (frame / 4337) | Frame (ethrex) | 4337 (Sepolia) | Frequency |
+|---|---|---|---|---|
+| Device registration (Type 1) | 4,041 B / 4,106 B | **234 K** | **323 K** | Once per 128 txs |
+| Compact (Type 2, any q) | 2,598 B / 2,663 B | **119 K (const.)** | **176 K (const.)** | Every tx |
+| Stateless fallback (Type 1, sub=0) | 4,009 B / 4,106 B | **209 K** | **300 K** | Emergency |
+| Re-registration (Type 1) | 4,041 B / 4,106 B | **234 K** | **289 K** | New slot |
 
 | Metric | Frame (ethrex) | 4337 (Sepolia) |
-|--------|---------------|----------------|
-| Type 2 gas | **119K (constant)** | **176K (constant)** |
-| Per-q increment | 0 (balanced tree) | 0 (balanced tree) |
-| 4337 overhead | — | ~56K constant (EntryPoint + ECDSA) |
+|---|---|---|
+| Type 2 per-q increment | 0 (balanced tree) | 0 (balanced tree) |
+| 4337 overhead | — | ~56 K constant (EntryPoint + ECDSA) |
 
-Gas per q increment: ~498 gas avg. Compact path saves **44%** gas vs stateless C11 at q=1, **22%** at q=95.
+Compact path vs stateless C11: **~44 % less gas, constant across all q** (the old unbalanced-spine design grew linearly — 16 B / ~500 gas per `q`).
 
-### Security
+## Security Summary
 
-| Property | Value |
-|----------|-------|
-| Compact path r=1 | 128-bit (normal) |
-| Compact path r=2 (double-sign) | 105-bit (graceful degradation) |
-| Fallback (C11) at 2^14 sigs | 128-bit |
-| Hash function | keccak256 (native EVM) |
-| Post-quantum | Yes (hash-only security) |
+| Component | Property | Value |
+|---|---|---|
+| Compact path (FORS+C k=26, a=5) | One-time (r=1) | **130-bit** |
+|   | Double-sign (r=2) | 105-bit (graceful) |
+|   | Five reuses (r=5) | 74-bit |
+| Stateless fallback (SPHINCs- C11) | At 2^14 sigs | 128-bit |
+|   | At 2^18 sigs | 104.5-bit |
+| Hybrid ECDSA (4337) | Pre-quantum | secp256k1 |
+| Hash function | Preimage | keccak256, 128-bit |
+| Replay protection | 4337 | EntryPoint nonce |
+|   | Frame | Protocol nonce |
+| Rollback resistance | Device | Burn-before-sign (NVRAM) |
 
-No on-chain leaf counter. The leaf index q is encoded as a 1-byte explicit field in the FORS+C signature. Slot key is `keccak256(subPkSeed, subPkRoot)` — the random `r` used to derive the sub-key never appears on-chain. FORS+C's few-time nature tolerates accidental double-signing (105-bit at r=2). Replay protection comes from the EntryPoint nonce (4337) or Frame protocol nonce.
+The master C11 key signs **only Type 1 events** (registration + re-registration + emergency). With `Q_MAX = 128`, a wallet producing 100,000 compact signatures needs only ~782 C11 signatures — well within the 2^14 128-bit-safe zone.
 
-### Deployed (balanced h=7 tree, Q_MAX=128)
+The hybrid ECDSA requirement (ERC-4337 path) means the scheme is at least as secure as the stronger of ECDSA and SPHINCs- today, and remains secure under either classical or quantum attacks. The frame account (EIP-8141) drops ECDSA for a pure post-quantum path.
 
-**Sepolia (ERC-4337 hybrid ECDSA + PQ):**
+## ADRS Scheme (32 bytes)
+
+```
+layer(4) ‖ tree(8) ‖ type(4) ‖ kp(4) ‖ ci(4) ‖ x(4) ‖ y(4)
+
+type = 3  FORS_TREE        kp=0  ci=q  x=treeHeight  y=treeIndex (continuous across k trees)
+type = 4  FORS_ROOTS       kp=0  ci=q  x=0           y=0
+type = 6  FORS_PRF         kp=0  ci=q  x=0           y=treeIndex
+type = 16 JARDIN_MERKLE    kp=0  ci=0  x=level       y=nodeIndex
+```
+
+- `ci = q` in the FORS types provides domain separation between compact-path instances at different balanced-tree leaf positions.
+- `JARDIN_MERKLE` (type 16) is outside the FIPS 205 range and handles the balanced outer tree only.
+- `setTypeAndClear(type)` is called whenever `type` changes; all other fields are set explicitly.
+
+## Deployed
+
+**Sepolia (ERC-4337 hybrid ECDSA + PQ)** — balanced h=7, Q_MAX=128:
 
 | Contract | Address |
-|----------|---------|
-| JARDÍN FORS+C Verifier | [`0xef0f8def...`](https://sepolia.etherscan.io/address/0xef0f8def0caef9863b4061d6f2397d7d57c9bdfc) |
-| JARDÍN Account Factory | [`0x9ff19a7d...`](https://sepolia.etherscan.io/address/0x9ff19a7d8e438b59f1f0f892caa004784f491e65) |
-| JARDÍN Account (65 UserOps via Candide bundler) | [`0x0b0083c9...`](https://sepolia.etherscan.io/address/0x0b0083c930A5613E1391144edb132d8A75aa3DBb) |
-| SPHINCs- C11 Verifier (shared) | [`0xC25ef566...`](https://sepolia.etherscan.io/address/0xC25ef566884DC36649c3618EEDF66d715427Fd74) |
+|---|---|
+| JARDÍN FORS+C Verifier | [`0xef0f8def…`](https://sepolia.etherscan.io/address/0xef0f8def0caef9863b4061d6f2397d7d57c9bdfc) |
+| JARDÍN Account Factory | [`0x9ff19a7d…`](https://sepolia.etherscan.io/address/0x9ff19a7d8e438b59f1f0f892caa004784f491e65) |
+| JARDÍN Account (65 UserOps via Candide bundler) | [`0x0b0083c9…`](https://sepolia.etherscan.io/address/0x0b0083c930A5613E1391144edb132d8A75aa3DBb) |
+| SPHINCs- C11 Verifier (shared) | [`0xC25ef566…`](https://sepolia.etherscan.io/address/0xC25ef566884DC36649c3618EEDF66d715427Fd74) |
 
-**ethrex (EIP-8141 frame tx, pure PQ):**
+**ethrex (EIP-8141 frame tx, pure PQ)** — balanced h=7, Q_MAX=128:
 
 | Contract | Address |
-|----------|---------|
-| JARDÍN Frame Proxy (67 bytes) | `0x627b9A657eac8c3463AD17009a424dFE3FDbd0b1` |
+|---|---|
+| JARDÍN Frame Proxy (67-byte hand-optimised) | `0x627b9A657eac8c3463AD17009a424dFE3FDbd0b1` |
 | JARDÍN Frame Impl | `0x5Ffe31E4676D3466268e28a75E51d1eFa4298620` |
 | JARDÍN FORS+C Verifier | `0x4eaB29997D332A666c3C366217Ab177cF9A7C436` |
 | SPHINCs- C11 Verifier | `0x3155755b79aA083bd953911C92705B7aA82a18F9` |
 
-Full slot cycle (register → 128 compact → re-register → 1 compact in new slot) completed on both chains with 0 failures on the ethrex frame path and 20/20 success on the Candide-bundled Sepolia path.
+**On-chain validation (this release):**
 
+- **ethrex frame**: 132/132 txs succeeded (1 register + 1 stateless + 128 compact + 1 re-register + 1 compact). Type 2 gas 120,552 – 120,708 — constant across `q = 1 … 128`.
+- **Sepolia 4337 via Candide bundler**: final 20 txs (q=111…128 + re-register + q=1 in new slot) all succeeded, 100 % success rate. Type 1 `actualGasCost` 0.000566 ETH, Type 2 0.000385 ETH avg (tight ±0.1 % range across 18 compact sigs).
 
+## Hardware Signer
+
+Ledger Nano S+ app (ST33 Cortex-M0+, 48 MHz, no hardware keccak):
+[`nconsigny/sphincs-ethereum-app` (branch `sphincs-c11`)](https://github.com/nconsigny/sphincs-ethereum-app/tree/sphincs-c11)
+
+- **Compact signing: 3.1 s** (2,600 keccak for FORS+C + 32 counter grinds + USB overhead)
+- Stateless C11 signing: 390 s (292 K keccak — rare, only for registration / emergency)
+- NVRAM footprint per slot: ~4.3 KB (128 FORS+C pks + 127 Merkle internals + `r`, `q`, guards)
+
+---
 
 ## References
 
-- [ePrint 2025/2203](https://eprint.iacr.org/2025/2203) — Blockstream SPHINCS+ parameter optimization (WOTS+C, FORS+C)
+- [ePrint 2025/2203](https://eprint.iacr.org/2025/2203) — Kudinov & Nick, WOTS+C / FORS+C (SHRINCS, SHRIMPS)
 - [SPHINCS-Parameters](https://github.com/nconsigny/SPHINCS-Parameters) — EVM-adapted parameter search with calibrated gas model
-- [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) — Frame transactions (native account abstraction) 
+- [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) — Frame transactions (native account abstraction)
+- [FIPS 205](https://csrc.nist.gov/pubs/fips/205/final) — SLH-DSA / SPHINCS+ standard
 - [Verity](https://github.com/Th0rgal/verity) — Lean 4 → EVM formally verified smart contracts
 - [ZKnox/Kohaku](https://github.com/ethereum/kohaku) — PQ account pattern (shared verifier model)
+- See [`writeUp.md`](./writeUp.md) for the full JARDÍN design and security analysis.
