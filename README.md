@@ -12,7 +12,7 @@
 
 ---
 
-Post-quantum signature verification on Ethereum using SPHINCs- — lightweight hash-based signatures derived from SPHINCS+. Supports JARDÍN hybrid accounts (ECDSA + SPHINCs-) with a balanced-tree FORS+C compact path, stateless ERC-4337 accounts, and native EIP-8141 frame transaction accounts (pure PQ).
+Post-quantum signature verification on Ethereum using SPHINCs- — lightweight hash-based signatures derived from SPHINCS+. Supports JARDÍN hybrid accounts (ECDSA + SPHINCs-) with a balanced-tree FORS+C compact path, JARDINERO (T0-based, onboarding-friendly), stateless ERC-4337 accounts, and native EIP-8141 frame transaction accounts (pure PQ).
 
 For the full JARDÍN design write-up, see [`writeUp.md`](./writeUp.md).
 
@@ -395,6 +395,122 @@ Ledger Nano S+ app (ST33 Cortex-M0+, 48 MHz, no hardware keccak):
 - **Compact signing: 3.1 s** (2,600 keccak for FORS+C + 32 counter grinds + USB overhead)
 - Stateless C11 signing: 390 s (292 K keccak — rare, only for registration / emergency)
 - NVRAM footprint per slot: ~4.3 KB (128 FORS+C pks + 127 Merkle internals + `r`, `q`, guards)
+
+---
+
+---
+
+# JARDINERO — Tier-0 Onboarding Variant
+
+**JARDINERO** replaces C11 as JARDÍN's slot-registration lane with a dedicated Tier-0
+scheme, **T0 (`T0_W+C_h14_d7_a6_k39`)**, that's tuned for hardware onboarding speed
+rather than signature size. C11 becomes an optional recovery path, attached per
+account via `JardinAccount.attachC11Recovery()` only when the user wants it — at
+initial deploy the signer never has to compute a C11 key.
+
+## Why T0 replaces C11 at onboarding
+
+For a hardware wallet, "onboarding" means computing the PQ public key once. Under
+C11 (h=16, d=2, subtree_h=8) that requires building the 256-leaf top-layer XMSS —
+about **77 K keccak256 calls** — which is painfully slow on a secure element.
+
+T0 makes the opposite trade: a very flat hypertree (h=14, d=7) with a tiny
+top-layer XMSS of only **4 WOTS+C keypairs (h'=2)**. Onboarding drops to around
+**2 K keccak256 calls — ~40× faster**. The price is a bigger signature (8,220 B vs
+3,976 B) and slightly higher verify gas.
+
+## Parameters
+
+| Name | Value | Purpose |
+|---|---|---|
+| scheme | W+C | WOTS+C hypertree + plain FORS (no FORS+C) |
+| n | 16 bytes | 128-bit hash truncation |
+| h | 14 | total hypertree height |
+| d | 7 | layers |
+| h' | 2 | per-layer XMSS height → 4 WOTS+C keypairs/layer |
+| a | 6 | FORS tree height (64 leaves / tree) |
+| k | 39 | FORS trees |
+| w | 16 | Winternitz |
+| l | 32 | WOTS chains (no checksum — WOTS+C) |
+| swn | 240 | WOTS+C target base-w digit sum |
+| q_s budget | 2^13 = 8,192 | lifetime signatures @ 128-bit security |
+| H_msg domain | `0xFF..FE` | distinct from C11's `0xFF..FF` |
+
+Signature layout (what the verifier receives):
+```
+[R (16)] [K secrets: 39×16 = 624] [K auth paths: 39×6×16 = 3,744]
+[D layers × (counter 4 + L chains 32×16 + H' auth 2×16) = 7×548 = 3,836]
+= 8,220 bytes
+```
+
+## Signature Types (JardinAccount, ERC-4337)
+
+| Type | Role | Payload |
+|---|---|---|
+| `0x01` | **ECDSA + T0** (primary slot registration) | `[ecdsa 65][subSeed 16][subRoot 16][T0 sig 8,220]` = 8,317 B |
+| `0x02` | ECDSA + FORS+C (compact, requires registered slot) | `[ecdsa 65][subSeed 16][subRoot 16][FORS+C sig 2,565]` = 2,662 B |
+| `0x03` | ECDSA + C11 (optional recovery — if attached) | `[ecdsa 65][C11 sig 3,976]` = 4,041 B |
+
+At deploy time the account carries `t0PkSeed / t0PkRoot` (the 4-leaf XMSS root)
+and `forscVerifier` (immutable). `c11Verifier` starts at `address(0)`; the user
+attaches it later if desired. The slot-registration path never requires C11.
+
+## Measured Gas — 3×3 cycle on both chains
+
+### Sepolia via Candide bundler
+
+| | Actual gas used | `actualGasCost` avg |
+|---|---|---|
+| Type 1 (T0 + register) × 3 | **705K** | 1.12 mETH |
+| Type 2 (FORS+C compact) × 3 | **168K** | 0.437 mETH |
+
+All 6/6 succeeded. Type 1 sample tx: [`0x8cd55b41…`](https://sepolia.etherscan.io/tx/0x8cd55b41be28e1829830f488b2faf60850731a677768e26433e280614e14d4a6).
+Type 2 sample tx: [`0x23b35f3b…`](https://sepolia.etherscan.io/tx/0x23b35f3b8d036537b6b4880bc63407fe58bba3613287e79abf2b2c60197221f5).
+
+### ethrex (EIP-8141 frame)
+
+| | Actual gas used |
+|---|---|
+| Type 1 (T0 + register) × 3 | **650K** (avg) |
+| Type 2 (FORS+C compact) × 3 | **121K** (avg) |
+
+All 6/6 succeeded with `F0=0x1 F1=0x1` (both frames OK). Frame savings vs 4337
+are the EntryPoint overhead (~55K for Type 1, ~47K for Type 2): no `handleOps`
+loop, no prefund dance, no account ↔ EntryPoint bookkeeping.
+
+## Deployed (JARDINERO)
+
+**Sepolia (chain 11155111)**
+
+| Contract | Address |
+|---|---|
+| T0 Verifier | [`0x188c4Ed4…`](https://sepolia.etherscan.io/address/0x188c4Ed44e5e26090D9A46CE2D5c9bD153AD5767) |
+| FORS+C Verifier | [`0x4833624a…`](https://sepolia.etherscan.io/address/0x4833624a57E59D2f888890ae6B776933c5FF6C68) |
+| JARDINERO Factory | [`0xA9a71887…`](https://sepolia.etherscan.io/address/0xA9a718873E092aAE8170534eeb1ee3615F9E95F0) |
+| JARDINERO Account (sample) | [`0xB2b3e120…`](https://sepolia.etherscan.io/address/0xB2b3e12093d3Dd355b946F47bdFb08CA1F35B3cd) |
+
+**ethrex (chain 1729)**
+
+| Contract | Address |
+|---|---|
+| T0 Verifier | `0xFD6D23eE2b6b136E34572fc80cbCd33E9787705e` |
+| FORS+C Verifier | `0xa779C1D17bC5230c07afdC51376CAC1cb3Dd5314` |
+| Frame Impl | `0x76cec9299B6Fa418dc71416FF353737AB7933A7D` |
+| Frame Proxy | `0xA3307BF348ACC4bEDdd67CCA2f7F0c4349d347Db` |
+
+## Usage
+
+```bash
+# Deploy full stack to Sepolia
+forge script script/DeployJardineroSepolia.s.sol --rpc-url sepolia --broadcast
+
+# Run 4337 cycle (3× Type 1 + 3× Type 2 via Candide)
+python3 script/jardin_t0_userop.py save-addresses <t0> <forsc> <factory>
+python3 script/jardin_t0_userop.py cycle
+
+# Run frame-tx cycle on ethrex (3× Type 1 + 3× Type 2)
+python3 script/jardinero_frame_tx.py cycle
+```
 
 ---
 

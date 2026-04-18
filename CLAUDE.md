@@ -46,10 +46,12 @@ SPHINCs-Asm (deployed once, stateless, pure)
 | `SphincsAccount.sol` | ERC-4337 hybrid account (keys in storage, rotatable) |
 | `SphincsAccountFactory.sol` | Deploys accounts (shared verifier in constructor) |
 | `SphincsFrameAccount.sol` | Solidity reference for EIP-8141 frame account |
-| `JardinForsCVerifier.sol` | JARDÍN FORS+C-only verifier: k=26 a=5, verify=~66K |
-| `JardinAccount.sol` | JARDÍN hybrid ECDSA + ERC-4337: Type 1 (C11) + Type 2 (FORS+C) |
-| `JardinAccountFactory.sol` | Deploys JARDÍN accounts (ECDSA owner + two verifier refs) |
-| `JardinFrameAccount.sol` | JARDÍN EIP-8141 frame account: pure PQ, rotatable keys |
+| `JardinForsCVerifier.sol` | JARDÍN FORS+C-only verifier: k=26 a=5, verify=~51K |
+| `JardinT0Verifier.sol` | JARDINERO Tier-0 verifier: plain-FORS + WOTS+C hypertree, verify=470K |
+| `JardinAccount.sol` | JARDINERO hybrid ECDSA + ERC-4337: Type 1 (T0, primary) + Type 2 (FORS+C) + Type 3 (C11 optional recovery) |
+| `JardinAccountFactory.sol` | Deploys JARDINERO accounts (ECDSA owner + T0 + FORS+C verifiers) |
+| `JardinFrameAccount.sol` | Legacy C11-based EIP-8141 frame account |
+| `JardineroFrameAccount.sol` | JARDINERO EIP-8141 frame account: pure PQ, T0 + FORS+C |
 
 ### Variants
 
@@ -66,41 +68,74 @@ All SPHINCs- variants use W+C_F+C, n=128-bit, d=2, domain-separated H_msg (160 b
 
 ### JARDÍN (Judicious Authentication from Random-subset Domain-separated Indexed Nodes)
 
-Hybrid ECDSA + compact FORS+C account with stateless C11 fallback. Balanced
-Merkle tree of height h=7 commits Q_MAX=128 FORS+C instances per slot.
+Hybrid ECDSA + compact FORS+C account. Balanced Merkle tree of height h=7
+commits Q_MAX=128 FORS+C instances per slot.
+
+### JARDINERO (Tier-0 variant, onboarding-friendly)
+
+T0 (`T0_W+C_h14_d7_a6_k39`) replaces C11 as the slot-registration path. Top-layer
+XMSS has only 4 WOTS+C keypairs (h'=2), so onboarding keygen is ~40× faster
+than C11 on hardware. C11 becomes an optional recovery path attached via
+`attachC11Recovery()` post-deploy.
+
+| Parameter | Value |
+|---|---|
+| n | 16 bytes (128-bit hash truncation) |
+| h (total hypertree height) | 14 |
+| d (layers) | 7 |
+| h' (per-layer XMSS height) | 2 (4 leaves/layer) |
+| a (FORS tree height) | 6 (64 leaves/tree) |
+| k (FORS trees) | 39 |
+| w (Winternitz) | 16 |
+| l (WOTS chains) | 32 (no checksum — WOTS+C) |
+| swn (WOTS+C target digit sum) | 240 |
+| q_s_budget | 2^13 = 8,192 lifetime sigs @ 128-bit |
+| Sig size | 8,220 B |
+| H_msg domain separator | `0xFF..FE` (distinct from C11's `0xFF..FF`) |
 
 ```
-C11 Verifier (existing)          JardinForsCVerifier (NEW)
-    ↑ verify(...)                     ↑ verifyForsC(...)
-    │                                 │
-    └── Type 1 (ECDSA+C11) ──────────┘── Type 2 (ECDSA+FORS+C)
+JardinT0Verifier         JardinForsCVerifier           SPHINCs-C11Asm (optional)
+    ↑ verify(...)             ↑ verifyForsC(...)            ↑ verify(...)
+    │                         │                             │
+    └─ Type 1 (ECDSA+T0) ─────┘── Type 2 (ECDSA+FORS+C)     └── Type 3 (ECDSA+C11 recovery)
                       │
                  JardinAccount (ERC-4337, hybrid)
                  ├── owner (ECDSA signer, rotatable)
-                 ├── masterPkSeed, masterPkRoot (C11 identity)
+                 ├── t0PkSeed, t0PkRoot (T0 identity)
+                 ├── c11Verifier / c11PkSeed / c11PkRoot (zero until attached)
                  ├── slots: mapping(H(subPkSeed,subPkRoot) → 1)
-                 └── Type 1: device registration + C11 fallback
-                     Type 2: FORS+C compact (every subsequent tx)
+                 ├── Type 1: T0 sig + register sub-key slot (or stateless fallback when sub=0)
+                 ├── Type 2: FORS+C compact (requires registered slot)
+                 └── Type 3: C11 recovery (requires attachC11Recovery self-call)
 ```
 
-| Event | Sig size | 4337 gas | Frequency |
-|---|---|---|---|
-| Device registration (Type 1) | 4,138 B | 323K | Once per 128 txs |
-| Compact (Type 2, any q) | 2,598 B (constant) | ~176K | Every tx |
-| Re-registration (Type 1) | 4,138 B | 289K | New slot |
+Measured gas (Sepolia via Candide + ethrex frame txs, 3×3 cycle each):
 
-FORS+C variant 2: k=26, a=5, n=16B (128-bit). Balanced Merkle h=7, Q_MAX=128.
-q encoded as 1-byte explicit field; no on-chain counter. FORS+C tolerates r=2
-at 105-bit. H_msg: 192-byte domain-separated hash
+| Event | Sig | 4337 (Sepolia) | Frame (ethrex) |
+|---|---|---|---|
+| Type 1 (T0 + register) | 8,318 B / 8,253 B | **705K** | **650K** |
+| Type 2 (FORS+C compact) | 2,663 B / 2,598 B | **168K** | **121K** |
+
+T0 verify alone (assembly): **470K gas**. FORS+C verify alone: **51K gas**.
+
+The ~55K/47K frame advantage is EntryPoint overhead we don't pay on ethrex.
+
+FORS+C (unchanged from earlier JARDÍN): k=26, a=5, n=16B (128-bit). Balanced
+Merkle h=7, Q_MAX=128. q encoded as 1-byte explicit field. FORS+C tolerates
+r=2 at 105-bit. H_msg: 192-byte domain-separated hash
 (seed||root||R||msg||counter||domain).
 
 ### Off-chain Components
 
 - `script/signer.py` — Python signer (c2/c6/c7 variants)
 - `script/jardin_signer.py` — JARDÍN FORS+C signer (balanced h=7 tree + FORS+C)
-- `script/send_userop.py` — ERC-4337 UserOp builder
-- `script/frame_tx.py` — EIP-8141 frame tx builder
-- `script/deploy_frame_account.py` — Deploys v2 frame account (keys in bytecode)
+- `script/jardin_t0_signer.py` — JARDINERO T0 signer (plain FORS + WOTS+C hypertree)
+- `script/jardin_userop.py` — legacy JARDÍN (C11-based) 4337 UserOp builder
+- `script/jardin_t0_userop.py` — JARDINERO 4337 UserOp builder (Candide bundler)
+- `script/jardin_frame_tx.py` — legacy JARDÍN (C11-based) EIP-8141 frame tx
+- `script/jardinero_frame_tx.py` — JARDINERO EIP-8141 frame tx (ethrex)
+- `script/deploy_jardin_frame.py` — Deploys hand-optimized frame proxy (works for both impls)
+- `script/DeployJardineroSepolia.s.sol` — Forge deploy script for T0 + FORS+C + factory
 - `signer-wasm/` — Rust WASM signer with BIP-39/44 key derivation
 
 ### Key Derivation

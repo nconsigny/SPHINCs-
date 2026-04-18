@@ -29,6 +29,9 @@ broadcast/
 script/.frame_*_deploy.json
 script/.jardin_ethrex.json
 script/.jardin_state.json
+script/.jardinero_ethrex.json
+script/.jardinero_addresses.json
+script/.jardinero_state.json
 
 # Rust/WASM build artifacts
 signer-wasm/target/

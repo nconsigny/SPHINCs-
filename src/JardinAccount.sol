@@ -6,29 +6,36 @@ import "account-abstraction/core/Helpers.sol";
 import "account-abstraction/interfaces/IEntryPoint.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-/// @title JardinAccount — Hybrid ECDSA + JARDÍN ERC-4337 account
-/// @notice Every UserOp requires ECDSA + post-quantum signature (belt-and-suspenders).
-///   Type 1 (0x01): ECDSA + C11 stateless + optional sub-key registration
+/// @title JardinAccount — Hybrid ECDSA + JARDINERO T0 ERC-4337 account
+/// @notice Every UserOp requires ECDSA + post-quantum signature.
+///
+///   Type 1 (0x01): ECDSA + T0 (slot registration + stateless fallback)
 ///   Type 2 (0x02): ECDSA + FORS+C compact via registered sub-key slot
+///   Type 3 (0x03): ECDSA + C11 (optional recovery; only if c11Verifier set)
 ///
-/// Slot key is keccak256(subPkSeed, subPkRoot) — the sub-key's public commitment.
-/// The random `r` used to derive the sub-key never appears on-chain.
+/// The account is deployed with a T0 verifier as primary, since T0 keygen
+/// is ~40× cheaper than C11 on hardware (h'=2, 4 WOTS+C keypairs at top).
+/// A C11 verifier may be attached post-deployment via attachC11Recovery
+/// for break-glass scenarios — it is never used during normal onboarding.
 ///
-/// No on-chain leaf counter. The leaf index q is encoded as a single byte
-/// inside the FORS+C compact signature and verified via the balanced Merkle
-/// tree walk. FORS+C provides 105-bit security even under accidental
-/// double-signing (r=2). Replay protection comes from the EntryPoint nonce
-/// (4337) or Frame protocol nonce.
+/// Slot key is keccak256(subPkSeed, subPkRoot) — the sub-key's public
+/// commitment. The random `r` used to derive the sub-key never appears
+/// on-chain.
 contract JardinAccount is BaseAccount {
     using ECDSA for bytes32;
 
     IEntryPoint private immutable _entryPoint;
-    address public immutable c11Verifier;
+    address public immutable t0Verifier;
     address public immutable forscVerifier;
 
     address public owner;
-    bytes32 public masterPkSeed;
-    bytes32 public masterPkRoot;
+    bytes32 public t0PkSeed;
+    bytes32 public t0PkRoot;
+
+    /// @notice Optional C11 recovery verifier. Zero until attached.
+    address public c11Verifier;
+    bytes32 public c11PkSeed;
+    bytes32 public c11PkRoot;
 
     /// @notice Sub-key slots: keccak256(subPkSeed, subPkRoot) => 1 (registered flag)
     mapping(bytes32 => uint256) public slots;
@@ -37,21 +44,23 @@ contract JardinAccount is BaseAccount {
     error SlotAlreadyRegistered();
     error UnregisteredSlot();
     error NotEntryPoint();
+    error RecoveryAlreadySet();
+    error RecoveryNotConfigured();
 
     constructor(
         IEntryPoint ep,
         address _owner,
-        address _c11Verifier,
+        address _t0Verifier,
         address _forscVerifier,
-        bytes32 _masterPkSeed,
-        bytes32 _masterPkRoot
+        bytes32 _t0PkSeed,
+        bytes32 _t0PkRoot
     ) {
         _entryPoint = ep;
         owner = _owner;
-        c11Verifier = _c11Verifier;
+        t0Verifier = _t0Verifier;
         forscVerifier = _forscVerifier;
-        masterPkSeed = _masterPkSeed;
-        masterPkRoot = _masterPkRoot;
+        t0PkSeed = _t0PkSeed;
+        t0PkRoot = _t0PkRoot;
     }
 
     function entryPoint() public view override returns (IEntryPoint) {
@@ -62,10 +71,10 @@ contract JardinAccount is BaseAccount {
         require(msg.sender == address(entryPoint()), NotEntryPoint());
     }
 
-    function rotateMasterKeys(bytes32 newPkSeed, bytes32 newPkRoot) external {
+    function rotateT0Keys(bytes32 newPkSeed, bytes32 newPkRoot) external {
         require(msg.sender == address(this), NotEntryPoint());
-        masterPkSeed = newPkSeed;
-        masterPkRoot = newPkRoot;
+        t0PkSeed = newPkSeed;
+        t0PkRoot = newPkRoot;
     }
 
     function rotateOwner(address newOwner) external {
@@ -74,20 +83,40 @@ contract JardinAccount is BaseAccount {
         owner = newOwner;
     }
 
+    /// @notice Attach a C11 recovery verifier. Callable only via self-call
+    ///         (i.e., from a validated UserOp).  One-shot: once set, the
+    ///         keys can still be rotated but the verifier address is fixed.
+    function attachC11Recovery(address verifier, bytes32 pkSeed, bytes32 pkRoot) external {
+        require(msg.sender == address(this), NotEntryPoint());
+        require(c11Verifier == address(0), RecoveryAlreadySet());
+        require(verifier != address(0));
+        c11Verifier = verifier;
+        c11PkSeed = pkSeed;
+        c11PkRoot = pkRoot;
+    }
+
+    function rotateC11RecoveryKeys(bytes32 newPkSeed, bytes32 newPkRoot) external {
+        require(msg.sender == address(this), NotEntryPoint());
+        require(c11Verifier != address(0), RecoveryNotConfigured());
+        c11PkSeed = newPkSeed;
+        c11PkRoot = newPkRoot;
+    }
+
     /// @notice Validate hybrid signature: ECDSA + PQ on every UserOp.
     ///
-    /// Signature layout (both types):
+    /// Signature layout (all types):
     ///   [type 1B][ecdsaSig 65B][...PQ payload...]
     ///
-    /// Type 1 PQ payload: [subPkSeed 16B][subPkRoot 16B][C11 sig ~4008B]
+    /// Type 1 PQ payload: [subPkSeed 16B][subPkRoot 16B][T0 sig 8220B]
     ///   subSeed==0 && subRoot==0 ⇒ stateless fallback (skip registration).
     /// Type 2 PQ payload: [subPkSeed 16B][subPkRoot 16B][FORS+C sig 2565B]
+    /// Type 3 PQ payload: [C11 sig 3976B]  — uses c11PkSeed/c11PkRoot
     function _validateSignature(
         PackedUserOperation calldata userOp,
         bytes32 userOpHash
     ) internal override returns (uint256 validationData) {
         bytes calldata sig = userOp.signature;
-        require(sig.length > 98, InvalidSignatureType());
+        require(sig.length > 66, InvalidSignatureType());
 
         uint8 sigType = uint8(sig[0]);
 
@@ -98,15 +127,17 @@ contract JardinAccount is BaseAccount {
         }
 
         bytes calldata pq = sig[66:];
-        bytes16 subSeed = bytes16(pq[0:16]);
-        bytes16 subRoot = bytes16(pq[16:32]);
 
         if (sigType == 0x01) {
-            // ── Type 1: ECDSA + C11 stateless + optional sub-key registration ──
-            (bool ok, bytes memory res) = c11Verifier.staticcall(
+            // ── Type 1: ECDSA + T0 (primary slot-registration path) ──
+            require(pq.length >= 32, InvalidSignatureType());
+            bytes16 subSeed = bytes16(pq[0:16]);
+            bytes16 subRoot = bytes16(pq[16:32]);
+
+            (bool ok, bytes memory res) = t0Verifier.staticcall(
                 abi.encodeWithSignature(
                     "verify(bytes32,bytes32,bytes32,bytes)",
-                    masterPkSeed, masterPkRoot, userOpHash, pq[32:]
+                    t0PkSeed, t0PkRoot, userOpHash, pq[32:]
                 )
             );
             if (!ok || res.length < 32 || !abi.decode(res, (bool))) {
@@ -121,8 +152,10 @@ contract JardinAccount is BaseAccount {
 
         } else if (sigType == 0x02) {
             // ── Type 2: ECDSA + FORS+C compact ──
-            // q is encoded as a 1-byte field inside the FORS+C signature.
-            // No on-chain counter — FORS+C tolerates r=2 at 105-bit security.
+            require(pq.length >= 32, InvalidSignatureType());
+            bytes16 subSeed = bytes16(pq[0:16]);
+            bytes16 subRoot = bytes16(pq[16:32]);
+
             bytes32 key = keccak256(abi.encodePacked(subSeed, subRoot));
             require(slots[key] != 0, UnregisteredSlot());
 
@@ -130,6 +163,20 @@ contract JardinAccount is BaseAccount {
                 abi.encodeWithSignature(
                     "verifyForsC(bytes32,bytes32,bytes32,bytes)",
                     bytes32(subSeed), bytes32(subRoot), userOpHash, pq[32:]
+                )
+            );
+            if (!ok || res.length < 32 || !abi.decode(res, (bool))) {
+                return SIG_VALIDATION_FAILED;
+            }
+
+        } else if (sigType == 0x03) {
+            // ── Type 3: ECDSA + C11 optional recovery ──
+            require(c11Verifier != address(0), RecoveryNotConfigured());
+
+            (bool ok, bytes memory res) = c11Verifier.staticcall(
+                abi.encodeWithSignature(
+                    "verify(bytes32,bytes32,bytes32,bytes)",
+                    c11PkSeed, c11PkRoot, userOpHash, pq
                 )
             );
             if (!ok || res.length < 32 || !abi.decode(res, (bool))) {
