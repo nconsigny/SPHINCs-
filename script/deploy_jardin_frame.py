@@ -4,11 +4,13 @@ Deploy a hand-optimized JARDÍN frame account on ethrex.
 
 Architecture: thin bytecode proxy + Solidity implementation via DELEGATECALL.
   - Proxy (~45 bytes runtime): forwards calldata → DELEGATECALL impl → APPROVE(0,0,3)
-  - Impl (JardinFrameAccount): complex JARDÍN logic (Type 1/2, slots, dual verifiers)
+  - Impl (JardineroFrameAccount / JardinFrameAccount): JARDÍN Type 1/2 logic,
+    slot map, dual verifiers. Slot layout is fixed across impls so the proxy
+    stays agnostic to which PQ verifier lives in slot 0.
   - Storage lives in the proxy (DELEGATECALL context)
 
-Storage layout (matches JardinFrameAccount.sol):
-  slot 0: c11Verifier
+Storage layout (shared across frame-impl variants):
+  slot 0: primary PQ verifier  (SPX | T0 | C11)
   slot 1: forscVerifier
   slot 2: masterPkSeed
   slot 3: masterPkRoot
@@ -18,8 +20,10 @@ Frame data format: sigHash(32) || abi.encode(bytes jardinSig)
 The proxy's fallback forwards this to the impl's fallback, which parses and verifies.
 
 Usage:
-  python3 script/deploy_jardin_frame.py --impl <addr> --c11 <addr> --forsc <addr> \\
-    --seed <hex> --root <hex> [--rpc <url>] [--dev-key <hex>]
+  python3 script/deploy_jardin_frame.py --impl <addr> --verifier <addr> \\
+    --forsc <addr> --seed <hex> --root <hex> [--rpc <url>] [--dev-key <hex>]
+
+  `--spx` / `--c11` are accepted as aliases for `--verifier` (legacy).
 """
 
 import sys, os, json, subprocess, argparse
@@ -124,7 +128,7 @@ def build_proxy_bytecode(impl_addr: str) -> bytes:
 
 
 def build_creation_code(impl_addr: str,
-                         c11_addr: str, forsc_addr: str,
+                         verifier_addr: str, forsc_addr: str,
                          pk_seed: bytes, pk_root: bytes,
                          owner_addr: str) -> bytes:
     """Build full creation code: SSTORE storage slots + CODECOPY runtime + RETURN."""
@@ -133,9 +137,11 @@ def build_creation_code(impl_addr: str,
 
     creation = bytearray()
 
-    # SSTORE(0, c11Verifier)
-    c11 = bytes.fromhex(c11_addr.replace("0x", "")).rjust(32, b'\x00')
-    creation += bytes([0x7f]) + c11    # PUSH32 c11
+    # SSTORE(0, primary PQ verifier)  [slot is named spxVerifier in the
+    # current JardineroFrameAccount; previous impls called it t0Verifier /
+    # c11Verifier — the slot itself is agnostic.]
+    v = bytes.fromhex(verifier_addr.replace("0x", "")).rjust(32, b'\x00')
+    creation += bytes([0x7f]) + v      # PUSH32 verifier
     creation += bytes([0x5f, 0x55])    # PUSH0, SSTORE
 
     # SSTORE(1, forscVerifier)
@@ -176,20 +182,27 @@ def main():
     parser = argparse.ArgumentParser(description="Deploy JARDÍN hand-optimized frame account")
     parser.add_argument("--rpc", default="https://demo.eip-8141.ethrex.xyz/rpc")
     parser.add_argument("--dev-key", default="0x" + DEV_KEY)
-    parser.add_argument("--impl", required=True, help="JardinFrameAccount Solidity impl address")
-    parser.add_argument("--c11", required=True, help="C11 verifier address")
+    parser.add_argument("--impl", required=True, help="Frame account Solidity impl address")
+    parser.add_argument("--verifier", dest="verifier",
+                        help="Primary PQ verifier address (goes in storage slot 0)")
+    # Legacy aliases — all wire into `verifier`:
+    parser.add_argument("--spx", dest="verifier", help=argparse.SUPPRESS)
+    parser.add_argument("--c11", dest="verifier", help=argparse.SUPPRESS)
     parser.add_argument("--forsc", required=True, help="FORS+C verifier address")
     parser.add_argument("--seed", required=True, help="masterPkSeed (0x-hex)")
     parser.add_argument("--root", required=True, help="masterPkRoot (0x-hex)")
     parser.add_argument("--owner", default="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
     args = parser.parse_args()
 
+    if not args.verifier:
+        parser.error("--verifier (or legacy --spx/--c11) is required")
+
     pk_seed = bytes.fromhex(args.seed.replace("0x", ""))
     pk_root = bytes.fromhex(args.root.replace("0x", ""))
     assert len(pk_seed) == 32 and len(pk_root) == 32
 
     creation = build_creation_code(
-        args.impl, args.c11, args.forsc, pk_seed, pk_root, args.owner)
+        args.impl, args.verifier, args.forsc, pk_seed, pk_root, args.owner)
 
     runtime = build_proxy_bytecode(args.impl)
     print(f"Proxy runtime: {len(runtime)} bytes")
@@ -208,19 +221,9 @@ def main():
             if 'contractAddress' in line:
                 addr = line.split()[-1]
                 print(f"\nJARDÍN Frame Proxy: {addr}")
-                print(f"  impl:  {args.impl}")
-                print(f"  c11:   {args.c11}")
-                print(f"  forsc: {args.forsc}")
-
-                # Save
-                info = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                                    ".jardin_ethrex.json")))
-                info["frame_proxy"] = addr
-                info["impl"] = args.impl
-                with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                        ".jardin_ethrex.json"), "w") as f:
-                    json.dump(info, f, indent=2)
-                print(f"  Saved to .jardin_ethrex.json")
+                print(f"  impl:     {args.impl}")
+                print(f"  verifier: {args.verifier}")
+                print(f"  forsc:    {args.forsc}")
                 break
     else:
         print(f"Failed: {proc.stderr}")
