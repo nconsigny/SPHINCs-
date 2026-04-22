@@ -12,7 +12,7 @@
 
 ---
 
-Post-quantum signature verification on Ethereum using SPHINCs- — lightweight hash-based signatures derived from SPHINCS+. Supports JARDÍN hybrid accounts (ECDSA + SPHINCs-) with a balanced-tree FORS+C compact path, JARDINERO (T0-based, onboarding-friendly), stateless ERC-4337 accounts, and native EIP-8141 frame transaction accounts (pure PQ).
+Post-quantum signature verification on Ethereum using SPHINCs- — lightweight hash-based signatures derived from SPHINCS+. Supports JARDÍN hybrid accounts (ECDSA + SPHINCs-) with a plain-SPHINCS+ (SPX) registration path and a balanced-tree FORS+C compact path, stateless ERC-4337 accounts, and native EIP-8141 frame transaction accounts (pure PQ).
 
 For the full JARDÍN design write-up, see [`writeUp.md`](./writeUp.md).
 
@@ -400,59 +400,66 @@ Ledger Nano S+ app (ST33 Cortex-M0+, 48 MHz, no hardware keccak):
 
 ---
 
-# JARDINERO — Tier-0 Onboarding Variant
+# JARDINERO — Plain-SPHINCS+ (SPX) Registration Variant
 
-**JARDINERO** replaces C11 as JARDÍN's slot-registration lane with a dedicated Tier-0
-scheme, **T0 (`T0_W+C_h14_d7_a6_k39`)**, that's tuned for hardware onboarding speed
-rather than signature size. C11 becomes an optional recovery path, attached per
-account via `JardinAccount.attachC11Recovery()` only when the user wants it — at
-initial deploy the signer never has to compute a C11 key.
+**JARDINERO** is the current production-oriented configuration of JARDÍN. Its
+registration path is **plain SPHINCS+** (standard WOTS+ with checksum, not
+WOTS+C) with the parameter set below. C11 is kept as an optional break-glass
+recovery path, attached per account via `JardinAccount.attachC11Recovery()`
+only when the user wants it.
 
-## Why T0 replaces C11 at onboarding
+Earlier drops of this branch used **T0** (`T0_W+C_h14_d7_a6_k39`, WOTS+C
+hypertree) as the registration path. T0 is still available as
+`JardinT0Verifier` if you want it, but the default account, factory and
+frame-account now wire SPX instead.
 
-For a hardware wallet, "onboarding" means computing the PQ public key once. Under
-C11 (h=16, d=2, subtree_h=8) that requires building the 256-leaf top-layer XMSS —
-about **77 K keccak256 calls** — which is painfully slow on a secure element.
+## Why plain SPHINCS+
 
-T0 makes the opposite trade: a very flat hypertree (h=14, d=7) with a tiny
-top-layer XMSS of only **4 WOTS+C keypairs (h'=2)**. Onboarding drops to around
-**2 K keccak256 calls — ~40× faster**. The price is a bigger signature (8,220 B vs
-3,976 B) and slightly higher verify gas.
+For a hardware wallet the two costs that matter are the *keygen* burned at
+onboarding and the *sign hash count* paid on every registration. SPX has
+`d=5, h'=4` ⇒ 16 top-layer WOTS keypairs (vs C11's 256), so onboarding is
+cheap; and sign cost lands at ~36.6K keccak calls, well under C11's 292K.
+Signatures are 6,512 B; verifier compute is 278K gas; on-chain cost on
+Sepolia 4337 is dominated by the calldata floor (`64 × 6512 = 416.8K gas`),
+so further micro-optimizing keccak counts has no effect on total fee.
 
 ## Parameters
 
 | Name | Value | Purpose |
 |---|---|---|
-| scheme | W+C | WOTS+C hypertree + plain FORS (no FORS+C) |
-| n | 16 bytes | 128-bit hash truncation |
-| h | 14 | total hypertree height |
-| d | 7 | layers |
-| h' | 2 | per-layer XMSS height → 4 WOTS+C keypairs/layer |
-| a | 6 | FORS tree height (64 leaves / tree) |
-| k | 39 | FORS trees |
-| w | 16 | Winternitz |
-| l | 32 | WOTS chains (no checksum — WOTS+C) |
-| swn | 240 | WOTS+C target base-w digit sum |
-| q_s budget | 2^13 = 8,192 | lifetime signatures @ 128-bit security |
-| H_msg domain | `0xFF..FE` | distinct from C11's `0xFF..FF` |
+| scheme | plain SPHINCS+ | WOTS+ with checksum, FORS |
+| n | 16 bytes | keccak256 truncated to 128 bits |
+| h | 20 | total hypertree height |
+| d | 5 | layers |
+| h' | 4 | per-layer XMSS height → 16 WOTS keypairs/layer |
+| a | 7 | FORS tree height (128 leaves / tree) |
+| k | 20 | FORS trees |
+| w | 8 | Winternitz, lg(w)=3 |
+| l1 | 42 | message chains (⌊128/3⌋) |
+| l2 | 3 | checksum chains (⌈log_w(l1·(w−1))⌉) |
+| l | 45 | total WOTS chains |
+| R | 32 bytes | per-signature randomness |
+| ADRS | 12 bytes | compact (layer‖tree‖type‖kp‖chainAddr‖hashAddr, big-endian) |
+| Hmsg | keccak256(R ‖ PKseed ‖ PKroot ‖ M) | full 256-bit, MSB-first parsing |
+| q_s budget | 2^11 → 128 bits | security flat at 127.8 bits through 2^14 |
 
 Signature layout (what the verifier receives):
 ```
-[R (16)] [K secrets: 39×16 = 624] [K auth paths: 39×6×16 = 3,744]
-[D layers × (counter 4 + L chains 32×16 + H' auth 2×16) = 7×548 = 3,836]
-= 8,220 bytes
+[R (32)] [K=20 trees × (sk 16 + auth 7×16) = 2,560]
+[D=5 layers × (WOTS 45×16 + XMSS auth 4×16) = 5×784 = 3,920]
+= 6,512 bytes
 ```
 
 ## Signature Types (JardinAccount, ERC-4337)
 
 | Type | Role | Payload |
 |---|---|---|
-| `0x01` | **ECDSA + T0** (primary slot registration) | `[ecdsa 65][subSeed 16][subRoot 16][T0 sig 8,220]` = 8,317 B |
+| `0x01` | **ECDSA + SPX** (primary slot registration) | `[ecdsa 65][subSeed 16][subRoot 16][SPX sig 6,512]` = 6,609 B |
 | `0x02` | ECDSA + FORS+C (compact, requires registered slot) | `[ecdsa 65][subSeed 16][subRoot 16][FORS+C sig]` = 2,598 B + 16·h |
 | `0x03` | ECDSA + C11 (optional recovery — if attached) | `[ecdsa 65][C11 sig 3,976]` = 4,041 B |
 
-At deploy time the account carries `t0PkSeed / t0PkRoot` (the 4-leaf XMSS root)
-and `forscVerifier` (immutable). `c11Verifier` starts at `address(0)`; the user
+At deploy time the account carries `spxPkSeed / spxPkRoot` and
+`forscVerifier` (immutable). `c11Verifier` starts at `address(0)`; the user
 attaches it later if desired. The slot-registration path never requires C11.
 
 ### Variable-height FORS+C
@@ -479,74 +486,83 @@ or accounts.
 
 | | Actual gas used | `actualGasCost` avg |
 |---|---|---|
-| Type 1 (T0 + register) × 3 | **705K** | 1.12 mETH |
-| Type 2 (FORS+C compact) × 3 | **168K** | 0.437 mETH |
+| Type 1 (SPX + register) × 3 | ~floor-bound (calldata 416.8K) | **1.08 mETH** |
+| Type 2 (FORS+C compact) × 3 | constant across q | **0.55 mETH** |
 
-All 6/6 succeeded. Type 1 sample tx: [`0x8cd55b41…`](https://sepolia.etherscan.io/tx/0x8cd55b41be28e1829830f488b2faf60850731a677768e26433e280614e14d4a6).
-Type 2 sample tx: [`0x23b35f3b…`](https://sepolia.etherscan.io/tx/0x23b35f3b8d036537b6b4880bc63407fe58bba3613287e79abf2b2c60197221f5).
+All 6/6 succeeded. SPX verify compute on-chain: **278K gas**;
+`eth_estimateGas` on the deployed verifier: **401K**. EntryPoint + calldata
+push the 4337 total above the pure-compute figure.
 
 ### ethrex (EIP-8141 frame)
 
 | | Actual gas used |
 |---|---|
-| Type 1 (T0 + register) × 3 | **650K** (avg) |
-| Type 2 (FORS+C compact) × 3 | **121K** (avg) |
+| Type 1 (SPX + register) × 3 | **416K** avg (415,660) |
+| Type 2 (FORS+C compact) × 3 | **121K** avg (120,672) |
 
-All 6/6 succeeded with `F0=0x1 F1=0x1` (both frames OK). Frame savings vs 4337
-are the EntryPoint overhead (~55K for Type 1, ~47K for Type 2): no `handleOps`
-loop, no prefund dance, no account ↔ EntryPoint bookkeeping.
+All 6/6 succeeded with `F0=0x1 F1=0x1` (both frames OK). Frame savings vs
+4337 are the EntryPoint overhead: no `handleOps` loop, no prefund dance, no
+account ↔ EntryPoint bookkeeping.
 
-## Deployed (JARDINERO)
+## Deployed (JARDINERO — SPX)
 
-**Sepolia (chain 11155111) — fixed-h=7 (historical)**
-
-| Contract | Address |
-|---|---|
-| T0 Verifier | [`0x188c4Ed4…`](https://sepolia.etherscan.io/address/0x188c4Ed44e5e26090D9A46CE2D5c9bD153AD5767) |
-| FORS+C Verifier (fixed h=7) | [`0x4833624a…`](https://sepolia.etherscan.io/address/0x4833624a57E59D2f888890ae6B776933c5FF6C68) |
-| JARDINERO Factory | [`0xA9a71887…`](https://sepolia.etherscan.io/address/0xA9a718873E092aAE8170534eeb1ee3615F9E95F0) |
-| JARDINERO Account (sample) | [`0xB2b3e120…`](https://sepolia.etherscan.io/address/0xB2b3e12093d3Dd355b946F47bdFb08CA1F35B3cd) |
-
-**Sepolia — variable-h (current)**
+**Sepolia (chain 11155111, EntryPoint v0.9)**
 
 | Contract | Address |
 |---|---|
-| FORS+C Verifier (variable h ∈ [2,8]) | [`0xd12b2c6a…`](https://sepolia.etherscan.io/address/0xd12b2c6ac8992c22c863e8ef0982f33a3119366d) |
-| JARDINERO Factory (Vh) | [`0xf21c16a2…`](https://sepolia.etherscan.io/address/0xf21c16a2bcc91fba0a91a06caf9697120429fecd) |
-| JARDINERO Account (Vh sample) | [`0x2D82c7B5…`](https://sepolia.etherscan.io/address/0x2D82c7B5b19bC7DA4CdCD1acFC4dC448245a28B0) |
+| JARDÍN SPX Verifier | [`0xdC424A07…`](https://sepolia.etherscan.io/address/0xdC424A07981A5d6c8Afd0778141d3551e327b9AB) |
+| FORS+C Verifier (variable h ∈ [2,8]) | [`0x99B10BB6…`](https://sepolia.etherscan.io/address/0x99B10BB66da9c538E4A4A7D6cBE4E56bFe2Be979) |
+| JARDÍN Factory | [`0x08c0B125…`](https://sepolia.etherscan.io/address/0x08c0B1254a666dEB1c5A3972cC981EA6694c71c1) |
+| JARDÍN Account (cycle sample) | [`0x88a61f94…`](https://sepolia.etherscan.io/address/0x88a61f94Ea5CaCaA0Cdd5FC39ece95A910fb10fe) |
 
-Mixed-h cycle on Sepolia via Candide (3 Type 1 registrations at h=5, 7, 8 + 3 Type 2 on each, 6/6 OK):
-- Type 1 h=5 → [`0xe0fe589b…`](https://sepolia.etherscan.io/tx/0xe0fe589b1c3092877cdb6267d483c9e3473b3de44d174150124d7f9034fcbf53) · h=7 → [`0x2998be3c…`](https://sepolia.etherscan.io/tx/0x2998be3c0dd62d979e2559f598c8051fafaaced8ab8563e43c03c0925570b26a) · h=8 → [`0x487d32ee…`](https://sepolia.etherscan.io/tx/0x487d32ee4c0fce008a006ff7dc259582452a760fe40e80318c2586771530aecc)
-- Type 2 h=5 (2631 B) → [`0xf8764a62…`](https://sepolia.etherscan.io/tx/0xf8764a6259cc5505fa36db35213b40d8dfc2681c0d04d5bd455cae6a0af00ad0) · h=7 (2663 B) → [`0x7c0b66cc…`](https://sepolia.etherscan.io/tx/0x7c0b66ccb8ae2ccb004895233eeba5645a16e5a926ae9eeff8bce1ae928a7029) · h=8 (2679 B) → [`0xd86f5c0f…`](https://sepolia.etherscan.io/tx/0xd86f5c0f49af23253b4d72c54ebabc7b1d6897dc975bd4d850f54a782ef2c193)
+Candide cycle (3× Type 1 SPX + 3× Type 2 FORS+C, 6/6 OK):
+- Type 1: [`0x7f99f057…`](https://sepolia.etherscan.io/tx/0x7f99f057aa33df13976e818d757059051ee90fc34e87b6e46d3a8128ed4e7235) · [`0x4ca7825a…`](https://sepolia.etherscan.io/tx/0x4ca7825a32531a07cffa32a19fffb6246c5efebd94cc20fc0c2939ef4a9f51be) · [`0xda64ef93…`](https://sepolia.etherscan.io/tx/0xda64ef934673797f6842937d5eb5ebb9007fcaf2363d780fcb7063e6888a5edd)
+- Type 2: [`0xb8b028be…`](https://sepolia.etherscan.io/tx/0xb8b028bed4f83ef7ee50ac51c2c5beefc66f854628f89812b0a6be643887e143) · [`0x72c0fea1…`](https://sepolia.etherscan.io/tx/0x72c0fea16e13af416de6f08260c2caf11a77868143902dc94ea8bfc0102fb99c) · [`0x904284dd…`](https://sepolia.etherscan.io/tx/0x904284dd6a5263139fa3c5dc6063b757550d4cd81780ab65ca63d3fd604028b2)
 
-**ethrex (chain 1729)**
+**ethrex (chain 1729, EIP-8141 frame tx)**
 
 | Contract | Address |
 |---|---|
-| T0 Verifier | `0xFD6D23eE2b6b136E34572fc80cbCd33E9787705e` |
+| JARDÍN SPX Verifier | `0xF5b81Fe0B6F378f9E6A3fb6A6cD1921FCeA11799` |
 | FORS+C Verifier | `0xa779C1D17bC5230c07afdC51376CAC1cb3Dd5314` |
-| Frame Impl | `0x76cec9299B6Fa418dc71416FF353737AB7933A7D` |
-| Frame Proxy | `0xA3307BF348ACC4bEDdd67CCA2f7F0c4349d347Db` |
+| JardineroFrameAccount Impl | `0x67baFF31318638F497f4c4894Cd73918563942c8` |
+| Frame Proxy (67-byte hand-optimised) | `0x6533158b042775e2FdFeF3cA1a782EFDbB8EB9b1` |
+
+Frame cycle (3× Type 1 SPX + 3× Type 2 FORS+C, 6/6 OK):
+- Type 1: `0x873d3930…9bd57cf`, `0x10d8e1d9…a7321f97`, `0x0a1c82f3…38b13f5b`
+- Type 2: `0x4e5161c3…161a36a7`, `0x7b88852a…25e32f61`, `0xaa76bb2d…3dff4269`
+
+**Legacy T0 deployment** (kept around; not the default path):
+
+| Network | T0 Verifier | Factory (T0-based) | Frame Proxy (T0-based) |
+|---|---|---|---|
+| Sepolia | `0x188c4Ed4…AD5767` | `0xA9a71887…F9E95F0` | — |
+| ethrex  | `0xFD6D23eE…7705e`  | —                      | `0xA3307BF3…47Db` |
 
 ## Usage
 
 ```bash
-# Deploy full stack to Sepolia
+# Deploy full SPX stack to Sepolia
 forge script script/DeployJardineroSepolia.s.sol --rpc-url sepolia --broadcast
 
-# (fixed-h=7) Run 4337 cycle (3× Type 1 + 3× Type 2 via Candide)
-python3 script/jardin_t0_userop.py save-addresses <t0> <forsc> <factory>
-python3 script/jardin_t0_userop.py cycle
+# Run 4337 cycle (3× Type 1 SPX + 3× Type 2 FORS+C via Candide)
+python3 script/jardin_spx_userop.py save-addresses <spxVerifier> <forscVerifier> <factory>
+python3 script/jardin_spx_userop.py cycle
 
-# (variable-h) Deploy the variable-h verifier + sibling factory
-forge script script/DeployJardineroVhSepolia.s.sol --rpc-url sepolia --broadcast
-
-# (variable-h) Run mixed-h cycle (Type 1 at h=5/7/8 + Type 2 on each)
-python3 script/jardin_t0_userop.py cycle-vh
-
-# Run frame-tx cycle on ethrex (3× Type 1 + 3× Type 2)
+# Run frame-tx cycle on ethrex (requires an already-deployed proxy)
 python3 script/jardinero_frame_tx.py cycle
+
+# Re-deploy the frame proxy on ethrex (SPX in slot 0)
+python3 script/deploy_jardin_frame.py \
+  --impl <JardineroFrameAccount impl> \
+  --verifier <SPX verifier> \
+  --forsc <FORS+C verifier> \
+  --seed <spxPkSeed as bytes32> --root <spxPkRoot as bytes32>
 ```
+
+The legacy `jardin_t0_userop.py` and the `cycle-vh` mixed-h T0 flow are
+still in-tree for reproducing older benchmarks but are not part of the
+current default path.
 
 ---
 
