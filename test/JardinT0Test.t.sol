@@ -3,10 +3,6 @@ pragma solidity ^0.8.28;
 
 import "forge-std/Test.sol";
 import "../src/JardinT0Verifier.sol";
-import "../src/JardinForsCVerifier.sol";
-import "../src/JardinAccountFactory.sol";
-import "../src/JardinAccount.sol";
-import "account-abstraction/interfaces/IEntryPoint.sol";
 
 contract JardinT0Test is Test {
     JardinT0Verifier verifier;
@@ -117,24 +113,8 @@ contract JardinT0Test is Test {
     function testT0RejectsTamperedWOTSChain() public view  { _assertTamperFails(4384 + 4 + 100); } // layer-0 wots
     function testT0RejectsTamperedXMSSAuth() public view   { _assertTamperFails(4384 + 4 + 512 + 8); } // layer-0 xmss auth
 
-    function testFactoryDeploysWithT0() public {
-        JardinForsCVerifier forsc = new JardinForsCVerifier();
-        JardinAccountFactory factory = new JardinAccountFactory(
-            IEntryPoint(address(0xdead)), address(verifier), address(forsc)
-        );
-
-        address ecdsaOwner = address(0xBEEF);
-        bytes32 t0PkSeed = bytes32(uint256(0xAAAA));
-        bytes32 t0PkRoot = bytes32(uint256(0xBBBB));
-
-        address predicted = factory.getAddress(ecdsaOwner, t0PkSeed, t0PkRoot);
-        JardinAccount account = factory.createAccount(ecdsaOwner, t0PkSeed, t0PkRoot);
-        assertEq(address(account), predicted, "CREATE2 address mismatch");
-        assertEq(account.owner(), ecdsaOwner);
-        assertEq(account.t0Verifier(), address(verifier));
-        assertEq(account.forscVerifier(), address(forsc));
-        assertEq(account.t0PkSeed(), t0PkSeed);
-        assertEq(account.t0PkRoot(), t0PkRoot);
-        assertEq(account.c11Verifier(), address(0), "C11 recovery must be unset on deploy");
-    }
+    // T0 is no longer the default slot-registration path in JardinAccount
+    // (replaced by plain-SPX). T0 verifier tests above still exercise the
+    // standalone verifier contract; factory/account integration is covered
+    // in test/JardinSpxTest.t.sol.
 }

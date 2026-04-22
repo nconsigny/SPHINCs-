@@ -32,6 +32,9 @@ script/.jardin_state.json
 script/.jardinero_ethrex.json
 script/.jardinero_addresses.json
 script/.jardinero_state.json
+script/.jardinero_vh_state.json
+script/.jardin_spx_addresses.json
+script/.jardin_spx_state.json
 
 # Rust/WASM build artifacts
 signer-wasm/target/

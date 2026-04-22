@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-JARDINERO EIP-8141 Frame Transactions on ethrex.
+JARDINERO EIP-8141 Frame Transactions on ethrex (SPX variant).
 
 Cycle: 3× Type 1 register → 3× Type 2 compact.
 
@@ -10,11 +10,11 @@ Usage: python3 script/jardinero_frame_tx.py [cycle|register [gen]|compact <q> [g
 import sys, os, json, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from jardin_t0_signer import (
-    derive_t0_keys as t0_derive,
-    build_pk_root as t0_build_root,
-    t0_sign as t0_sign_msg,
-    keccak256, to_b32, N_MASK,
+from jardin_spx_signer import (
+    derive_spx_keys as spx_derive,
+    build_pk_root as spx_build_root,
+    spx_sign,
+    keccak256 as _keccak_bytes,  # returns bytes
 )
 from jardin_signer import (
     build_balanced_tree, jardin_sign, Q_MAX,
@@ -32,9 +32,10 @@ from frame_tx import (
 ETHREX_RPC = "https://demo.eip-8141.ethrex.xyz/rpc"
 DEV_KEY = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
-# Frame tx fees (must be used consistently for sig_hash computation and submission)
 MAX_PRIORITY_FEE = 5_000_000_000
 MAX_FEE          = 10_000_000_000
+
+N_MASK_INT = (1 << 256) - (1 << 128)
 
 def info_path():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), ".jardinero_ethrex.json")
@@ -47,21 +48,25 @@ def load_ethrex_info():
 #  Key derivation
 # ============================================================
 
-def master_sk_bytes():
-    return keccak256(bytes.fromhex(DEV_KEY) + b"jardinero_frame_t0_v1").to_bytes(32, "big")
+def keccak_int(data: bytes) -> int:
+    return int.from_bytes(_keccak_bytes(data), "big")
 
-def make_t0_keys():
+def master_sk_bytes() -> bytes:
+    return _keccak_bytes(bytes.fromhex(DEV_KEY) + b"jardinero_frame_spx_v1")
+
+def make_spx_keys():
     master = master_sk_bytes()
-    sk_seed, sk_prf, pk_seed = t0_derive(master)
-    print("  Building T0 top-layer XMSS (4 WOTS+C keypairs)...", file=sys.stderr)
-    pk_root = t0_build_root(pk_seed, sk_seed)
+    sk_seed, sk_prf, pk_seed = spx_derive(master)
+    print("  Building SPX top-layer XMSS (16 WOTS+ keypairs)...", file=sys.stderr)
+    pk_root = spx_build_root(pk_seed, sk_seed)
     return sk_seed, sk_prf, pk_seed, pk_root
 
 def make_sub(gen=1):
+    """Derive a FORS+C sub-key (ints with value in high 16B, matching jardin_signer)."""
     master = master_sk_bytes()
-    sub_ent = keccak256(master + b"jardinero_device_" + str(gen).encode())
-    sub_pk_seed = keccak256(b"jardinero_pk_seed" + to_b32(sub_ent)) & N_MASK
-    sub_sk_seed = keccak256(b"jardinero_sk_seed" + to_b32(sub_ent))
+    sub_ent = _keccak_bytes(master + b"jardinero_device_spx_" + str(gen).encode())
+    sub_pk_seed = keccak_int(b"jardinero_pk_seed" + sub_ent) & N_MASK_INT
+    sub_sk_seed = keccak_int(b"jardinero_sk_seed" + sub_ent)
     print(f"  Building balanced FORS+C tree (gen={gen}, Q_MAX={Q_MAX})...", file=sys.stderr)
     t0 = time.time()
     levels, sub_pk_root = build_balanced_tree(sub_pk_seed, sub_sk_seed)
@@ -72,11 +77,15 @@ def make_sub(gen=1):
 #  JARDINERO signature builders
 # ============================================================
 
-def t0_type1_register(sk_seed, sk_prf, pk_seed, pk_root, sub_pk, sub_root, sig_hash, sig_counter):
-    t0_sig = t0_sign_msg(pk_seed, sk_seed, sk_prf, pk_root, sig_hash, sig_counter)
+def spx_type1_register(sk_seed, sk_prf, pk_seed, pk_root,
+                        sub_pk_int, sub_root_int, sig_hash_int, sig_counter):
+    # spx_sign takes message as 32B bytes; sig_hash comes in as int from
+    # frame_tx.compute_sig_hash. Pad/convert to bytes32.
+    msg = sig_hash_int.to_bytes(32, "big")
+    spx_sig = spx_sign(pk_seed, sk_seed, sk_prf, pk_root, msg, sig_counter)
     return (bytes([0x01]) +
-            (sub_pk   >> 128).to_bytes(16, "big") +
-            (sub_root >> 128).to_bytes(16, "big") + t0_sig)
+            (sub_pk_int   >> 128).to_bytes(16, "big") +
+            (sub_root_int >> 128).to_bytes(16, "big") + spx_sig)
 
 def jardin_type2(sub_pk, sub_sk, sub_root, q, levels, sig_hash):
     forsc, *_ = jardin_sign(sub_pk, sub_sk, sub_root, levels, sig_hash, q)
@@ -89,10 +98,7 @@ def jardin_type2(sub_pk, sub_sk, sub_root, q, levels, sig_hash):
 # ============================================================
 
 def encode_register_slot(sub_pk, sub_root):
-    from Crypto.Hash import keccak as _k
-    h = _k.new(digest_bits=256)
-    h.update(b"registerSlot(bytes16,bytes16)")
-    sel = h.digest()[:4]
+    sel = _keccak_bytes(b"registerSlot(bytes16,bytes16)")[:4]
     return (sel +
             (sub_pk   >> 128).to_bytes(16, "big").ljust(32, b"\x00") +
             (sub_root >> 128).to_bytes(16, "big").ljust(32, b"\x00"))
@@ -155,8 +161,7 @@ _local_nonce = [None]
 def _nonce(rpc, sender):
     if _local_nonce[0] is None:
         _local_nonce[0] = get_nonce(rpc, sender)
-    n = _local_nonce[0]
-    return n
+    return _local_nonce[0]
 
 def _advance_nonce():
     _local_nonce[0] += 1
@@ -183,12 +188,16 @@ def cmd_cycle():
     chain_id = get_chain_id(rpc)
     sender = info["frame_proxy"]
 
-    print(f"=== JARDINERO Frame Cycle — 3× Type 1 + 3× Type 2 ===")
+    print(f"=== JARDINERO (SPX) Frame Cycle — 3× Type 1 + 3× Type 2 ===")
     print(f"Chain: {chain_id}  Sender: {sender}")
-    sk_seed, sk_prf, pk_seed, pk_root = make_t0_keys()
-    assert hex(pk_root) == info["t0_pk_root"].replace("0x", "0x") or (
-        int(info["t0_pk_root"], 16) == pk_root
-    ), f"t0_pk_root mismatch: computed={hex(pk_root)} deployed={info['t0_pk_root']}"
+    sk_seed, sk_prf, pk_seed, pk_root = make_spx_keys()
+    # Accept either "spx_pk_root" or (legacy) "t0_pk_root" in the info file so the
+    # script keeps working across upgrades.
+    deployed = info.get("spx_pk_root") or info.get("t0_pk_root")
+    assert deployed is not None, "missing spx_pk_root/t0_pk_root in ethrex info"
+    assert int(deployed, 16) == int.from_bytes(pk_root, "big") or \
+           int(deployed, 16) == int.from_bytes(pk_root.ljust(32, b"\x00"), "big"), \
+        f"pk_root mismatch: computed={pk_root.hex()} deployed={deployed}"
 
     results = []
     sub_pk = sub_sk = sub_root = levels = None
@@ -200,7 +209,7 @@ def cmd_cycle():
         sender_data = encode_register_slot(sub_pk, sub_root)
         label = f"Type1 register (gen={gen})"
         res = do_tx(rpc, chain_id, sender, label,
-                    lambda sh, _g=gen: t0_type1_register(
+                    lambda sh, _g=gen: spx_type1_register(
                         sk_seed, sk_prf, pk_seed, pk_root,
                         sub_pk, sub_root, sh, sig_counter=_g),
                     sender_data=sender_data)

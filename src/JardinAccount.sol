@@ -6,17 +6,17 @@ import "account-abstraction/core/Helpers.sol";
 import "account-abstraction/interfaces/IEntryPoint.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-/// @title JardinAccount — Hybrid ECDSA + JARDINERO T0 ERC-4337 account
+/// @title JardinAccount — Hybrid ECDSA + JARDÍN SPX ERC-4337 account
 /// @notice Every UserOp requires ECDSA + post-quantum signature.
 ///
-///   Type 1 (0x01): ECDSA + T0 (slot registration + stateless fallback)
+///   Type 1 (0x01): ECDSA + SPX (plain SPHINCS+, slot-registration + stateless fallback)
 ///   Type 2 (0x02): ECDSA + FORS+C compact via registered sub-key slot
 ///   Type 3 (0x03): ECDSA + C11 (optional recovery; only if c11Verifier set)
 ///
-/// The account is deployed with a T0 verifier as primary, since T0 keygen
-/// is ~40× cheaper than C11 on hardware (h'=2, 4 WOTS+C keypairs at top).
-/// A C11 verifier may be attached post-deployment via attachC11Recovery
-/// for break-glass scenarios — it is never used during normal onboarding.
+/// SPX parameters: n=16, h=20, d=5, h'=4, a=7, k=20, w=8, l=45, plain WOTS+ checksum.
+/// Signature length: 6512 B. Signing cost: ~36.6K keccak calls (fast on SE hardware).
+/// A C11 verifier may be attached post-deployment via attachC11Recovery for
+/// break-glass scenarios — never used during normal operation.
 ///
 /// Slot key is keccak256(subPkSeed, subPkRoot) — the sub-key's public
 /// commitment. The random `r` used to derive the sub-key never appears
@@ -25,12 +25,12 @@ contract JardinAccount is BaseAccount {
     using ECDSA for bytes32;
 
     IEntryPoint private immutable _entryPoint;
-    address public immutable t0Verifier;
+    address public immutable spxVerifier;
     address public immutable forscVerifier;
 
     address public owner;
-    bytes32 public t0PkSeed;
-    bytes32 public t0PkRoot;
+    bytes32 public spxPkSeed;
+    bytes32 public spxPkRoot;
 
     /// @notice Optional C11 recovery verifier. Zero until attached.
     address public c11Verifier;
@@ -50,17 +50,17 @@ contract JardinAccount is BaseAccount {
     constructor(
         IEntryPoint ep,
         address _owner,
-        address _t0Verifier,
+        address _spxVerifier,
         address _forscVerifier,
-        bytes32 _t0PkSeed,
-        bytes32 _t0PkRoot
+        bytes32 _spxPkSeed,
+        bytes32 _spxPkRoot
     ) {
         _entryPoint = ep;
         owner = _owner;
-        t0Verifier = _t0Verifier;
+        spxVerifier = _spxVerifier;
         forscVerifier = _forscVerifier;
-        t0PkSeed = _t0PkSeed;
-        t0PkRoot = _t0PkRoot;
+        spxPkSeed = _spxPkSeed;
+        spxPkRoot = _spxPkRoot;
     }
 
     function entryPoint() public view override returns (IEntryPoint) {
@@ -71,10 +71,10 @@ contract JardinAccount is BaseAccount {
         require(msg.sender == address(entryPoint()), NotEntryPoint());
     }
 
-    function rotateT0Keys(bytes32 newPkSeed, bytes32 newPkRoot) external {
+    function rotateSpxKeys(bytes32 newPkSeed, bytes32 newPkRoot) external {
         require(msg.sender == address(this), NotEntryPoint());
-        t0PkSeed = newPkSeed;
-        t0PkRoot = newPkRoot;
+        spxPkSeed = newPkSeed;
+        spxPkRoot = newPkRoot;
     }
 
     function rotateOwner(address newOwner) external {
@@ -107,9 +107,9 @@ contract JardinAccount is BaseAccount {
     /// Signature layout (all types):
     ///   [type 1B][ecdsaSig 65B][...PQ payload...]
     ///
-    /// Type 1 PQ payload: [subPkSeed 16B][subPkRoot 16B][T0 sig 8220B]
+    /// Type 1 PQ payload: [subPkSeed 16B][subPkRoot 16B][SPX sig 6512B]
     ///   subSeed==0 && subRoot==0 ⇒ stateless fallback (skip registration).
-    /// Type 2 PQ payload: [subPkSeed 16B][subPkRoot 16B][FORS+C sig 2565B]
+    /// Type 2 PQ payload: [subPkSeed 16B][subPkRoot 16B][FORS+C sig]
     /// Type 3 PQ payload: [C11 sig 3976B]  — uses c11PkSeed/c11PkRoot
     function _validateSignature(
         PackedUserOperation calldata userOp,
@@ -129,15 +129,15 @@ contract JardinAccount is BaseAccount {
         bytes calldata pq = sig[66:];
 
         if (sigType == 0x01) {
-            // ── Type 1: ECDSA + T0 (primary slot-registration path) ──
+            // ── Type 1: ECDSA + SPX (primary slot-registration path) ──
             require(pq.length >= 32, InvalidSignatureType());
             bytes16 subSeed = bytes16(pq[0:16]);
             bytes16 subRoot = bytes16(pq[16:32]);
 
-            (bool ok, bytes memory res) = t0Verifier.staticcall(
+            (bool ok, bytes memory res) = spxVerifier.staticcall(
                 abi.encodeWithSignature(
                     "verify(bytes32,bytes32,bytes32,bytes)",
-                    t0PkSeed, t0PkRoot, userOpHash, pq[32:]
+                    spxPkSeed, spxPkRoot, userOpHash, pq[32:]
                 )
             );
             if (!ok || res.length < 32 || !abi.decode(res, (bool))) {

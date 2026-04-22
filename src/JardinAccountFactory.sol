@@ -4,42 +4,42 @@ pragma solidity ^0.8.28;
 import "./JardinAccount.sol";
 import "account-abstraction/interfaces/IEntryPoint.sol";
 
-/// @title JardinAccountFactory — Deterministic CREATE2 factory for JARDINERO
-///        accounts (ECDSA + T0 primary + FORS+C compact; C11 is attached
+/// @title JardinAccountFactory — Deterministic CREATE2 factory for JARDÍN
+///        accounts (ECDSA + SPX primary + FORS+C compact; C11 is attached
 ///        post-deploy as optional recovery).
 contract JardinAccountFactory {
     IEntryPoint public immutable entryPoint;
-    address public immutable t0Verifier;
+    address public immutable spxVerifier;
     address public immutable forscVerifier;
 
-    event AccountCreated(address indexed account, address indexed owner, bytes32 t0PkSeed, bytes32 t0PkRoot);
+    event AccountCreated(address indexed account, address indexed owner, bytes32 spxPkSeed, bytes32 spxPkRoot);
 
-    constructor(IEntryPoint _entryPoint, address _t0Verifier, address _forscVerifier) {
+    constructor(IEntryPoint _entryPoint, address _spxVerifier, address _forscVerifier) {
         entryPoint = _entryPoint;
-        t0Verifier = _t0Verifier;
+        spxVerifier = _spxVerifier;
         forscVerifier = _forscVerifier;
     }
 
-    /// @notice Deploy a new hybrid ECDSA + T0 account (deterministic via CREATE2)
-    function createAccount(address ecdsaOwner, bytes32 t0PkSeed, bytes32 t0PkRoot)
+    /// @notice Deploy a new hybrid ECDSA + SPX account (deterministic via CREATE2)
+    function createAccount(address ecdsaOwner, bytes32 spxPkSeed, bytes32 spxPkRoot)
         external
         returns (JardinAccount)
     {
-        bytes32 salt = keccak256(abi.encodePacked(ecdsaOwner, t0PkSeed, t0PkRoot));
+        bytes32 salt = keccak256(abi.encodePacked(ecdsaOwner, spxPkSeed, spxPkRoot));
         JardinAccount account = new JardinAccount{salt: salt}(
-            entryPoint, ecdsaOwner, t0Verifier, forscVerifier, t0PkSeed, t0PkRoot
+            entryPoint, ecdsaOwner, spxVerifier, forscVerifier, spxPkSeed, spxPkRoot
         );
-        emit AccountCreated(address(account), ecdsaOwner, t0PkSeed, t0PkRoot);
+        emit AccountCreated(address(account), ecdsaOwner, spxPkSeed, spxPkRoot);
         return account;
     }
 
     /// @notice Pre-compute account address before deployment
-    function getAddress(address ecdsaOwner, bytes32 t0PkSeed, bytes32 t0PkRoot)
+    function getAddress(address ecdsaOwner, bytes32 spxPkSeed, bytes32 spxPkRoot)
         external
         view
         returns (address)
     {
-        bytes32 salt = keccak256(abi.encodePacked(ecdsaOwner, t0PkSeed, t0PkRoot));
+        bytes32 salt = keccak256(abi.encodePacked(ecdsaOwner, spxPkSeed, spxPkRoot));
         bytes32 hash = keccak256(
             abi.encodePacked(
                 bytes1(0xff),
@@ -48,7 +48,7 @@ contract JardinAccountFactory {
                 keccak256(
                     abi.encodePacked(
                         type(JardinAccount).creationCode,
-                        abi.encode(entryPoint, ecdsaOwner, t0Verifier, forscVerifier, t0PkSeed, t0PkRoot)
+                        abi.encode(entryPoint, ecdsaOwner, spxVerifier, forscVerifier, spxPkSeed, spxPkRoot)
                     )
                 )
             )

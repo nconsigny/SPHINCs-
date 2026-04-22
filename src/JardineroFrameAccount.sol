@@ -1,28 +1,28 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-/// @title JardineroFrameAccount — EIP-8141 Frame account, pure PQ
-/// @notice Storage layout matches JardinFrameAccount.sol so the proxy
-///         bytecode and deployer script continue to work without changes:
-///             slot 0: t0Verifier      (was c11Verifier)
+/// @title JardineroFrameAccount — EIP-8141 Frame account, pure PQ (SPX variant)
+/// @notice Storage layout matches the legacy JardinFrameAccount/JardineroFrameAccount
+///         so the proxy bytecode (build_proxy_bytecode) and deployer keep working:
+///             slot 0: spxVerifier     (was t0Verifier / c11Verifier)
 ///             slot 1: forscVerifier
-///             slot 2: t0PkSeed        (was masterPkSeed)
-///             slot 3: t0PkRoot        (was masterPkRoot)
+///             slot 2: spxPkSeed       (was t0PkSeed / masterPkSeed)
+///             slot 3: spxPkRoot       (was t0PkRoot / masterPkRoot)
 ///             slot 4: owner
 ///
 /// Frame tx layouts:
-///   Type 1 (register):  VERIFY[sigHash‖01‖sub‖T0sig] → SENDER[registerSlot(sub)]
+///   Type 1 (register):  VERIFY[sigHash‖01‖sub‖SPXsig] → SENDER[registerSlot(sub)]
 ///   Type 2 (compact):   VERIFY[sigHash‖02‖sub‖FORSsig] → SENDER[execute(...)]
-///   Stateless fallback: VERIFY[sigHash‖01‖0‖0‖T0sig] → SENDER[execute(...)]
+///   Stateless fallback: VERIFY[sigHash‖01‖0‖0‖SPXsig] → SENDER[execute(...)]
 ///
-/// Onboarding avoids C11 entirely — T0 keygen builds only the top-layer
-/// XMSS (4 WOTS+C keypairs, ~40× faster on hardware than C11).
+/// Plain SPHINCS+ (SPX) replaces T0/C11 as the registration-path verifier.
+/// Signature length: 6512 B. Signing cost: ~36.6K keccak calls.
 contract JardineroFrameAccount {
 
-    address public t0Verifier;     // slot 0 (reused from old c11Verifier slot)
+    address public spxVerifier;    // slot 0
     address public forscVerifier;  // slot 1
-    bytes32 public t0PkSeed;       // slot 2
-    bytes32 public t0PkRoot;       // slot 3
+    bytes32 public spxPkSeed;      // slot 2
+    bytes32 public spxPkRoot;      // slot 3
     address public owner;          // slot 4
 
     /// @notice Sub-key slots: keccak256(subPkSeed, subPkRoot) => 1 (registered flag)
@@ -34,16 +34,16 @@ contract JardineroFrameAccount {
     error NotSelf();
 
     constructor(
-        address _t0Verifier,
+        address _spxVerifier,
         address _forscVerifier,
-        bytes32 _t0PkSeed,
-        bytes32 _t0PkRoot,
+        bytes32 _spxPkSeed,
+        bytes32 _spxPkRoot,
         address _owner
     ) {
-        t0Verifier = _t0Verifier;
+        spxVerifier = _spxVerifier;
         forscVerifier = _forscVerifier;
-        t0PkSeed = _t0PkSeed;
-        t0PkRoot = _t0PkRoot;
+        spxPkSeed = _spxPkSeed;
+        spxPkRoot = _spxPkRoot;
         owner = _owner;
     }
 
@@ -60,16 +60,16 @@ contract JardineroFrameAccount {
         uint8 sigType = uint8(sig[0]);
 
         if (sigType == 0x01) {
-            // Type 1: T0 verify against master keys. Sub-key bytes in the sig
+            // Type 1: SPX verify against master keys. Sub-key bytes in the sig
             // describe what will be registered in the SENDER frame; verification
-            // itself ignores them (master T0 keys authorize the registration).
-            (bool ok, bytes memory res) = t0Verifier.staticcall(
+            // itself ignores them (master SPX keys authorize the registration).
+            (bool ok, bytes memory res) = spxVerifier.staticcall(
                 abi.encodeWithSignature(
                     "verify(bytes32,bytes32,bytes32,bytes)",
-                    t0PkSeed, t0PkRoot, sigHash, sig[33:]
+                    spxPkSeed, spxPkRoot, sigHash, sig[33:]
                 )
             );
-            require(ok && res.length >= 32 && abi.decode(res, (bool)), "T0 verify failed");
+            require(ok && res.length >= 32 && abi.decode(res, (bool)), "SPX verify failed");
 
         } else if (sigType == 0x02) {
             // Type 2: FORS+C compact — verify slot registration + signature
@@ -109,15 +109,15 @@ contract JardineroFrameAccount {
         return result;
     }
 
-    function rotateT0Keys(bytes32 newPkSeed, bytes32 newPkRoot) external {
+    function rotateSpxKeys(bytes32 newPkSeed, bytes32 newPkRoot) external {
         require(msg.sender == address(this), NotSelf());
-        t0PkSeed = newPkSeed;
-        t0PkRoot = newPkRoot;
+        spxPkSeed = newPkSeed;
+        spxPkRoot = newPkRoot;
     }
 
-    function rotateVerifiers(address newT0, address newForsc) external {
+    function rotateVerifiers(address newSpx, address newForsc) external {
         require(msg.sender == address(this), NotSelf());
-        t0Verifier = newT0;
+        spxVerifier = newSpx;
         forscVerifier = newForsc;
     }
 
