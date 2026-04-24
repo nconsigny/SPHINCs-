@@ -32,8 +32,8 @@ There are different ways to construct the SPHINCS signature scheme. Existing lit
 | **C7** | WOTS+C / FORS+C | 24 | 2 | 16 | 8 | 8 | 43 | 151 | 3,704 B | 4.3 M | 127 K | 210 K | 318 K | 128 | 128 | 128 | 128 |
 | **C11** | WOTS+C / FORS+C | 16 | 2 | 11 | 13 | 8 | 43 | 203 | 3,976 B | 292 K | 116 K | 202 K | 308 K | 128 | 128 | 104.5 | 86.1 |
 | **C12** | Plain SPX | 20 | 5 | 7 | 20 | 8 | 45 | - | 6,512 B | 36.6 K | 276 K | - | - | 128 | 127.8 | 109.1 | 95.4 |
-| **SLH-DSA-SHA2-128-24** | SLH-DSA-128-24 | 22 | 1 | 24 | 6 | 4 | 68 | - | 3,856 B | keygen ~864 M / sign ~1.07 B cold, ~200 M cached † | ~142 K* | - | - | 128 | 128 | 128 | 128 |
-| **SLH-DSA-Keccak-128-24** | SLH-DSA-128-24 | 22 | 1 | 24 | 6 | 4 | 68 | - | 3,856 B | keygen ~864 M / sign ~1.07 B cold, ~200 M cached † | ~94 K* | - | - | 128 | 128 | 128 | 128 |
+| **SLH-DSA-SHA2-128-24** | SLH-DSA-128-24 | 22 | 1 | 24 | 6 | 4 | 68 | - | 3,856 B | ~1.07 B | ~142 K* | - | - | 128 | 128 | 128 | 128 |
+| **SLH-DSA-Keccak-128-24** | SLH-DSA-128-24 | 22 | 1 | 24 | 6 | 4 | 68 | - | 3,856 B | ~1.07 B | ~94 K* | - | - | 128 | 128 | 128 | 128 |
 
 - **Family**: the SPHINCS+ construction style (C-series WOTS+C/FORS+C with counter grinding; C12 plain SPX with plain WOTS+ checksum; SLH-DSA-128-24 with w=4, d=1 and a 2²⁴-sig hard cap).
 - **sign_h**: hash-function calls during keygen + one signature, zero-memory signer (no inter-sign caching — the relevant case for a hardware wallet). C-series + C12 use keccak256; SHA-2 SLH-DSA uses SHA-256. For the SLH-DSA-128-24 rows the split is shown explicitly: **keygen** (one-time per key: ~864 M hashes to build the 2²²-leaf XMSS), then per-signature cost split into a **cold** number (signer rebuilds the XMSS tree each time to extract the auth path: ~1.07 B = FORS ~200 M + XMSS tree-hash rebuild ~864 M + WOTS ~100) and a **cached †** number (signer keeps the 2²²-leaf tree in memory after keygen: 128 MB RAM, drops per-sign to ~200 M — dominated by the FORS work, which can't be cached because every message selects a different leaf_idx and therefore different FORS keys). A hardware-wallet-class signer (KB of RAM) is in the cold column.
