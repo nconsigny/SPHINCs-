@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SPHINCs- is a research prototype for lightweight SPHINCS+ variants on Ethereum. Three families of on-chain verifiers live here:
 
-1. **C-series** (C7, C11 in `src/`; C6/C8/C9/C10 in `legacy/src/`) — stateless WOTS+C / FORS+C (ePrint 2025/2203), unlimited signatures per key, n=128.
+1. **C-series** (C7, C11 in `src/`; C6/C8/C9/C10 in `legacy/src/`) — stateless WOTS+C / FORS+C (ePrint 2025/2203), n=128. Signature-count cap = 2^h (C7 → 2²⁴, C11 → 2¹⁶); security degrades with N as shown in the variants table in the README.
 2. **C12** (`src/SPHINCs-C12Asm.sol`) — plain SPHINCS+ (SPX) variant of the SPHINCs- family, with the JARDIN 32-byte ADRS kernel + keccak256 truncated to 16 B. h=20, d=5, a=7, k=20, w=8, l=45. 6,512-B sig, ~276 K verify gas. Cross-referenced by the JARDIN repo as `JardinSpxVerifier`.
 3. **SLH-DSA-128-24** — NIST SP 800-230 parameter set (d=1, h=22, a=24, k=6, w=4). Two variants:
    - FIPS 205 bit-exact SHA-2 (`src/SLH-DSA-SHA2-128-24verifier.sol`), uses the SHA-256 precompile at 0x02.
