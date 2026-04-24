@@ -11,14 +11,9 @@
 > **Use on testnets only.**
 
 ---
+# Intro
 
-## Introduction
-
-You probably heard that quantum computers will eventually break ECDSA, the signature scheme that secures Ethereum and Bitcoin accounts today. Recent resource estimates by Babbush et al. [1] bring this timeline closer than previously expected, making post-quantum signature verification at the execution layer an urgent problem. NIST has already standardized several PQ signature schemes, including the lattice-based ML-DSA (FIPS 204), with the lattice-based FN-DSA (Falcon) still in draft. Hash-based signatures are an attractive alternative: their security rests entirely on the properties of hash functions, well-understood with minimal assumptions these primitives are simpler to understand than lattice constructions. NIST standardized SLH-DSA [6] which comes with large signature size.
-
-## Abstract
-
-We describe SPHINCs-, a family of EVM-optimised variants of SLH-DSA that achieve 117 to 156K gas for pure on-chain signature verification without any precompile. The key modifications is substituting SHAKE256 with the native keccak256 opcode, a significant reduction of the signature budget. We detail how each SPHINCS+ parameter affects EVM verification cost versus signer burden, present a calibrated gas model fitted against real Solidity/Yul traces, and report measured gas costs for six variants deployed on Sepolia with ERC-4337 and ethrex devnet for EIP-8141. The variants described in the paper give a trade-off between signing budget per key pair, verifier cost in gas and signer keygen and signing keccak calls (hardware wallet friendliness).
+We describe SPHINCs-, a family of EVM-optimised variants of SLH-DSA and the recently proposed [SLH-DSA-SHA2-128-24](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-230.ipd.pdf). They all achieve low gas cost for pure on-chain signature verification without any precompile which makes them useful today without any ethereum hardfork. The key modifications is substituting SHA256/SHAKE256 with the native keccak256 opcode and a significant reduction of the signature budget. We detail how each SPHINCS+ parameter affects EVM verification cost versus signer burden, present a calibrated gas model fitted against real Solidity/Yul traces, and report measured gas costs for six variants deployed on Sepolia with ERC-4337 and ethrex devnet for EIP-8141. The variants described in the repo give a trade-off between signing budget per key pair, verifier cost in gas and signer keygen and signing keccak calls (hardware wallet friendliness).
 
 Earlier verifier variants (C6 / C8 / C9 / C10) are frozen in [`legacy/`](./legacy/README.md), same 32-byte ADRS kernel, different parameters.
 
