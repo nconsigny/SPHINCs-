@@ -21,7 +21,7 @@ One can simply build a smart account using any of these verifiers, they are stat
 
 ## Variants
 
-There are different ways to construct the SPHINActive verifiers fall into three families:
+There are different ways to construct the SPHINCS signature scheme. Existing litterature shows different way to optimise for signature size or verify cost. Active verifiers fall into three families:
 
 - WOTS+C / FORS+C (ePrint 2025/2203), n=128-bit, d=2, domain-separated H_msg (160-byte hash). Signature-count cap = 2^h (C7 → 2²⁴, C11 → 2¹⁶); security degrades with N as shown in the `sec_N` columns below.
 - Plain SPHINCS+ noted SPX with the JARDIN 32-byte ADRS kernel. n=128-bit, h=20, d=5, h'=4, plain WOTS+ checksum, keccak256 truncated to 128 bits. Signature-count cap = 2²⁰; security stays ≥128 bits all the way to that cap. (The JARDIN hybrid-account stack references this same contract as `JardinSpxVerifier` - see [`nconsigny/JARDIN`](https://github.com/nconsigny/JARDIN).)
