@@ -1,8 +1,8 @@
-# SPHINCs- — Post-Quantum Ethereum Accounts
+# SPHINCs- - Post-Quantum Ethereum Accounts
 
 ---
 
-> ## WARNING: RESEARCH PROTOTYPE — NOT FOR PRODUCTION USE
+> ## WARNING: RESEARCH PROTOTYPE - NOT FOR PRODUCTION USE
 >
 > This codebase is a scheme exploration for lightweight variants of SPHINCS+ (called SPHINCs-).
 > It has **not been audited**, contains **no security guarantees**, and is
@@ -12,11 +12,11 @@
 
 ---
 
-Post-quantum signature verification on Ethereum using SPHINCs- — lightweight hash-based signatures derived from SPHINCS+. This repo focuses on the pure SPHINCs- research stack: the stateless C-series (C7 / C11 verifier + `SphincsAccount` / `SphincsAccountFactory` / `SphincsFrameAccount`), the plain-SPHINCS+ variant **C12** (`SPHINCs-C12Asm.sol`), and two new NIST SP 800-230 SLH-DSA-128-24 verifiers (a FIPS 205 bit-exact SHA-2 variant and a JARDIN-convention Keccak twin).
+Post-quantum signature verification on Ethereum using SPHINCs- - lightweight hash-based signatures derived from SPHINCS+. This repo focuses on the pure SPHINCs- research stack: the stateless C-series (C7 / C11 verifier + `SphincsAccount` / `SphincsAccountFactory` / `SphincsFrameAccount`), the plain-SPHINCS+ variant **C12** (`SPHINCs-C12Asm.sol`), and two new NIST SP 800-230 SLH-DSA-128-24 verifiers (a FIPS 205 bit-exact SHA-2 variant and a JARDIN-convention Keccak twin).
 
-The C-series, C12, and SLH-DSA-Keccak verifiers all share the **JARDIN kernel**: one 32-byte ADRS layout (`layer4‖tree8‖type4‖kp4‖ci4‖cp4‖ha4`) and one `keccak256` tweakable-hash shape (`keccak(seed32 ‖ adrs32 ‖ inputs)`). A device port covers those four variants with a single `sphincs_th*` implementation. **SLH-DSA-SHA2-128-24 is the outlier** — it sticks to the FIPS 205 22-byte compressed ADRSc and SHA-256 (with the nested MGF1-based Hmsg), so it needs its own primitive set.
+The C-series, C12, and SLH-DSA-Keccak verifiers all share the **JARDIN kernel**: one 32-byte ADRS layout (`layer4‖tree8‖type4‖kp4‖ci4‖cp4‖ha4`) and one `keccak256` tweakable-hash shape (`keccak(seed32 ‖ adrs32 ‖ inputs)`). A device port covers those four variants with a single `sphincs_th*` implementation. **SLH-DSA-SHA2-128-24 is the outlier** - it sticks to the FIPS 205 22-byte compressed ADRSc and SHA-256 (with the nested MGF1-based Hmsg), so it needs its own primitive set.
 
-Earlier verifier variants (C6 / C8 / C9 / C10) are frozen in [`legacy/`](./legacy/README.md) — same 32-byte ADRS kernel, different parameters.
+Earlier verifier variants (C6 / C8 / C9 / C10) are frozen in [`legacy/`](./legacy/README.md) - same 32-byte ADRS kernel, different parameters.
 
 The full JARDÍN hybrid-account design (ECDSA + SPHINCs-, ERC-4337 + EIP-8141, the plain-SPHINCS+ registration path, the plain-FORS compact path, all the Jardin* contracts and signers) lives in a separate repo: [`nconsigny/JARDIN`](https://github.com/nconsigny/JARDIN).
 
@@ -26,19 +26,19 @@ The full JARDÍN hybrid-account design (ECDSA + SPHINCs-, ERC-4337 + EIP-8141, t
 
 Active verifiers fall into three families:
 
-- **C-series** (C7, C11) — WOTS+C / FORS+C (ePrint 2025/2203), n=128-bit, d=2, domain-separated H_msg (160-byte hash). Signature-count cap = 2^h (C7 → 2²⁴, C11 → 2¹⁶); security degrades with N as shown in the `sec_N` columns below.
-- **C12** — plain SPHINCS+ (SPX) with the JARDIN 32-byte ADRS kernel. n=128-bit, h=20, d=5, h'=4, plain WOTS+ checksum, keccak256 truncated to 128 bits. Signature-count cap = 2²⁰; security stays ≥128 bits all the way to that cap. (The JARDIN hybrid-account stack references this same contract as `JardinSpxVerifier` — see [`nconsigny/JARDIN`](https://github.com/nconsigny/JARDIN).)
-- **SLH-DSA-128-24** — NIST SP 800-230 (April 2026 IPD), n=128-bit, single-tree (d=1, h=22), w=4, **2²⁴ signature limit per key** (NIST hard cap, not just a security-degradation threshold), 3,856-byte signature. Two wire-level layouts:
-  - **SHA-2 variant** — FIPS 205 bit-exact: 22-byte compressed **ADRSc** (`layer(1) ‖ tree(8) ‖ type(1) ‖ 12 B type-dependent`), SHA-256 primitive, F / H / T input = `PK.seed(16) ‖ zeros(48) ‖ ADRSc(22) ‖ payload`, nested `Hmsg = MGF1-SHA-256(R ‖ seed ‖ SHA-256(R ‖ seed ‖ root ‖ M), m=21)`, byte-wise LSB-first digest-to-indices (same convention as the sphincs/sphincsplus reference and PQClean).
-  - **Keccak variant** — JARDIN twin: 32-byte full ADRS (`layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4`), keccak256 primitive, F / H / T input = `seed32 ‖ adrs32 ‖ payload`, one-shot `Hmsg = keccak(seed ‖ root ‖ R ‖ msg ‖ 0xFF..FB)` (no MGF1), LSB-first digest-to-indices on the 256-bit keccak output interpreted as a single big-endian integer.
+- **C-series** (C7, C11) - WOTS+C / FORS+C (ePrint 2025/2203), n=128-bit, d=2, domain-separated H_msg (160-byte hash). Signature-count cap = 2^h (C7 → 2²⁴, C11 → 2¹⁶); security degrades with N as shown in the `sec_N` columns below.
+- **C12** - plain SPHINCS+ (SPX) with the JARDIN 32-byte ADRS kernel. n=128-bit, h=20, d=5, h'=4, plain WOTS+ checksum, keccak256 truncated to 128 bits. Signature-count cap = 2²⁰; security stays ≥128 bits all the way to that cap. (The JARDIN hybrid-account stack references this same contract as `JardinSpxVerifier` - see [`nconsigny/JARDIN`](https://github.com/nconsigny/JARDIN).)
+- **SLH-DSA-128-24** - NIST SP 800-230 (April 2026 IPD), n=128-bit, single-tree (d=1, h=22), w=4, **2²⁴ signature limit per key** (NIST hard cap, not just a security-degradation threshold), 3,856-byte signature. Two wire-level layouts:
+  - **SHA-2 variant** - FIPS 205 bit-exact: 22-byte compressed **ADRSc** (`layer(1) ‖ tree(8) ‖ type(1) ‖ 12 B type-dependent`), SHA-256 primitive, F / H / T input = `PK.seed(16) ‖ zeros(48) ‖ ADRSc(22) ‖ payload`, nested `Hmsg = MGF1-SHA-256(R ‖ seed ‖ SHA-256(R ‖ seed ‖ root ‖ M), m=21)`, byte-wise LSB-first digest-to-indices (same convention as the sphincs/sphincsplus reference and PQClean).
+  - **Keccak variant** - JARDIN twin: 32-byte full ADRS (`layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4`), keccak256 primitive, F / H / T input = `seed32 ‖ adrs32 ‖ payload`, one-shot `Hmsg = keccak(seed ‖ root ‖ R ‖ msg ‖ 0xFF..FB)` (no MGF1), LSB-first digest-to-indices on the 256-bit keccak output interpreted as a single big-endian integer.
 
 | Variant | Family | h | d | a | k | w | l | swn | Sig | sign_h | Verify | Frame | 4337 | sec_14 | sec_16 | sec_18 | sec_20 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **C7** | WOTS+C / FORS+C | 24 | 2 | 16 | 8 | 8 | 43 | 151 | 3,704 B | 4.3 M | 127 K | 210 K | 318 K | 128 | 128 | 128 | 128 |
 | **C11** | WOTS+C / FORS+C | 16 | 2 | 11 | 13 | 8 | 43 | 203 | 3,976 B | 292 K | 116 K | 202 K | 308 K | 128 | 118.3 | 104.5 | 86.1 |
-| **C12** | Plain SPX | 20 | 5 | 7 | 20 | 8 | 45 | — | 6,512 B | 36.6 K | 276 K | — | — | 128 | 128 | 128 | 127.8 |
-| **SLH-DSA-SHA2-128-24** | SLH-DSA-128-24 | 22 | 1 | 24 | 6 | 4 | 68 | — | 3,856 B | ~1.9 B SHA-256 | ~142 K* | — | — | 128 | 128 | 128 | 128 |
-| **SLH-DSA-Keccak-128-24** | SLH-DSA-128-24 | 22 | 1 | 24 | 6 | 4 | 68 | — | 3,856 B | ~1.9 B keccak | ~94 K* | — | — | 128 | 128 | 128 | 128 |
+| **C12** | Plain SPX | 20 | 5 | 7 | 20 | 8 | 45 | - | 6,512 B | 36.6 K | 276 K | - | - | 128 | 128 | 128 | 127.8 |
+| **SLH-DSA-SHA2-128-24** | SLH-DSA-128-24 | 22 | 1 | 24 | 6 | 4 | 68 | - | 3,856 B | ~1.9 B SHA-256 | ~142 K* | - | - | 128 | 128 | 128 | 128 |
+| **SLH-DSA-Keccak-128-24** | SLH-DSA-128-24 | 22 | 1 | 24 | 6 | 4 | 68 | - | 3,856 B | ~1.9 B keccak | ~94 K* | - | - | 128 | 128 | 128 | 128 |
 
 - **Family**: the SPHINCS+ construction style (C-series WOTS+C/FORS+C with counter grinding; C12 plain SPX with plain WOTS+ checksum; SLH-DSA-128-24 with w=4, d=1 and a 2²⁴-sig hard cap).
 - **sign_h**: hash-function calls during keygen + sign (determines signer speed). C-series + C12 use keccak256; SHA-2 SLH-DSA uses SHA-256.
@@ -46,9 +46,9 @@ Active verifiers fall into three families:
 - **sec_N**: security bits at 2^N signatures per key. SLH-DSA-*-128-24 is flat 128-bit up to the **2²⁴ hard cap**, undefined beyond.
 - **Verify (pure)**: Foundry `gasleft()` measurement of the assembly block. SLH-DSA-128-24 numbers (marked `*`) exclude tx base + calldata.
 - **Frame**: total EIP-8141 frame-tx gas (ethrex). C12 / SLH-DSA-128-24 are not yet wired to frame accounts in this repo.
-- **4337**: total ERC-4337 `handleOps` tx gas (Sepolia). Same caveat — the 4337 wiring for C7 / C11 lives in `SphincsAccount` + `SphincsAccountFactory`; no SLH-DSA or C12 account exists here yet.
+- **4337**: total ERC-4337 `handleOps` tx gas (Sepolia). Same caveat - the 4337 wiring for C7 / C11 lives in `SphincsAccount` + `SphincsAccountFactory`; no SLH-DSA or C12 account exists here yet.
 
-C7 is the C-series gas champion with full 128-bit security up to 2²⁰ signatures. C11 is faster to sign (292 K hashes) but loses security after 2¹⁶ signatures. C12 has the lowest signer cost of all (36 K hashes — plain SPX with d=5 hypertree skips most tree-hash work) at the price of a 6,512-byte sig. SLH-DSA-SHA2-128-24 is the FIPS-aligned alternative: larger signer cost (~1.9 B hashes because d=1 forces a 2²² single XMSS tree), constant 128-bit security up to the 2²⁴ cap. The Keccak twin trades bit-exact NIST compliance for ~34 % cheaper on-chain verification — every F / H / T is a native `keccak256` opcode instead of a `staticcall(0x02)` to the SHA-256 precompile.
+C7 is the C-series gas champion with full 128-bit security up to 2²⁰ signatures. C11 is faster to sign (292 K hashes) but loses security after 2¹⁶ signatures. C12 has the lowest signer cost of all (36 K hashes - plain SPX with d=5 hypertree skips most tree-hash work) at the price of a 6,512-byte sig. SLH-DSA-SHA2-128-24 is the FIPS-aligned alternative: larger signer cost (~1.9 B hashes because d=1 forces a 2²² single XMSS tree), constant 128-bit security up to the 2²⁴ cap. The Keccak twin trades bit-exact NIST compliance for ~34 % cheaper on-chain verification - every F / H / T is a native `keccak256` opcode instead of a `staticcall(0x02)` to the SHA-256 precompile.
 
 ## Stateless SPHINCs- Architecture
 
@@ -77,7 +77,7 @@ EntryPoint.handleOps()
 
 ### EIP-8141 Frame Transaction (Pure PQ)
 
-The frame account has keys baked into its bytecode — no storage, no calldata overhead for keys. It receives `sigHash + raw_sig`, builds the full ABI call to the shared verifier internally, and calls APPROVE on success.
+The frame account has keys baked into its bytecode - no storage, no calldata overhead for keys. It receives `sigHash + raw_sig`, builds the full ABI call to the shared verifier internally, and calls APPROVE on success.
 
 ```
 Frame Transaction (type 0x06)
@@ -85,7 +85,7 @@ Frame Transaction (type 0x06)
     │     from embedded keys + calldata → STATICCALLs shared verifier → APPROVE
     └── Frame 1 (SENDER): ETH transfer / contract call
 ```
-No ECDSA — pure post-quantum. Keys are stored in EVM storage (not bytecode) to support future key rotation via `rotateKeys()` — costs ~4K gas per verify but keeps the same account address across key changes.
+No ECDSA - pure post-quantum. Keys are stored in EVM storage (not bytecode) to support future key rotation via `rotateKeys()` - costs ~4K gas per verify but keeps the same account address across key changes.
 
 ## Key Derivation
 
@@ -98,7 +98,7 @@ BIP-39 mnemonic (12 or 24 words)
     └──▶ BIP-32 m/44'/60'/0'/0/0 → ECDSA address (independent)
 ```
 
-SPHINCs- and ECDSA are derived through independent paths — compromising one does not compromise the other.
+SPHINCs- and ECDSA are derived through independent paths - compromising one does not compromise the other.
 
 ## Signers
 
@@ -144,7 +144,7 @@ EntryPoint v0.9: `0x433709009B8330FDa32311DF1C2AFA402eD8D009` (Sepolia)
 
 Verify-tx gas is the full top-level tx cost including 21 K tx base + ~63 K for the 3,872-B calldata payload; pure assembly execution is ~142 K (SHA-2) / ~94 K (Keccak). Keccak wins by ~21 % tx-level and ~34 % assembly-level because every F / H / T is a single native `keccak256` opcode, while the SHA-2 variant pays a `staticcall(0x02)` dispatch per hash × ~280 hashes.
 
-### ethrex Testnet (EIP-8141 Frame Tx — Pure PQ)
+### ethrex Testnet (EIP-8141 Frame Tx - Pure PQ)
 
 Chain ID: 1729. VERIFY frame reads keys from storage, STATICCALLs shared verifier, APPROVEs. No ECDSA.
 
