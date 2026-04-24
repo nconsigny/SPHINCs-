@@ -43,6 +43,12 @@ signers/sphincsplus-128-24/slhdsa-sha2-128-24
 signers/sphincsplus-128-24/.cache/
 signers/sphincsplus-128-24/__pycache__/
 
+# jardin-keccak C fork build artifacts
+signers/jardin-keccak-128-24/*.o
+signers/jardin-keccak-128-24/jardin-keccak-128-24
+signers/jardin-keccak-128-24/.cache/
+signers/jardin-keccak-128-24/__pycache__/
+
 # Rust/WASM build artifacts
 signer-wasm/target/
 signer-wasm/pkg/

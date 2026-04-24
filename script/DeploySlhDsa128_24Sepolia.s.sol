@@ -22,6 +22,8 @@ import "../src/SLH-DSA-keccak-128-24verifier.sol";
 ///     on-chain verify gas  : 225,642   (top-level tx, 3,856-B calldata included)
 ///   Keccak-128-24 verifier : 0x2Ac9Ec4a2A062aFc1be718e77ec3300D087E6205
 ///     deploy tx            : 0x253aa6dc5c93a201abc7a5cfb4ce27cdeafb35e34fc69c23ef1daae0535c4c4a
+///     sample verify tx     : 0x90d785a112fd0198b4506caf432632777aef43b00ceb648e864dcb119311fed4
+///     on-chain verify gas  : 177,910   (top-level tx, 3,856-B calldata included)
 contract DeploySlhDsa128_24Sepolia is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");

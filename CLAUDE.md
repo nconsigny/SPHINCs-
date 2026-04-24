@@ -184,7 +184,9 @@ SLH-DSA-128-24 experimental signers (NIST SP 800-230 parameter set, research pro
 - `script/slh_dsa_sha2_128_24_signer.py`, `script/slh_dsa_keccak_128_24_signer.py` — pure-Python reference signers (slow — keygen builds a 2^22-leaf XMSS)
 - `signers/sphincsplus-128-24/` — fork of sphincs/sphincsplus ref with a `params-*-128-24.h` header and w=4 support; ~2-4 min for a full NIST-params sign, callable from Forge tests via `script/slh_dsa_sha2_128_24_fast_signer.py`
 - `signers/sphincsplus-128-24/crosscheck.py` — validates that the C and Python signers produce identical bytes at matching params
-- `test/SLH-DSA-SHA2-128-24-Test.t.sol` — Forge FFI test that signs with the C binary and verifies on-chain
+- `signers/jardin-keccak-128-24/` — separate C fork for the JARDIN Keccak variant: same tree-hash / FORS / WOTS framework, but (a) a bundled minimal keccak256 impl (legacy 0x01 padding, Ethereum-flavour), (b) 32-byte full JARDIN ADRS (layer4‖tree8‖type4‖kp4‖ci4‖cp4‖ha4), (c) LSB-first digest-to-indices on the 256-bit keccak output, (d) LSB-first-within-128-bit WOTS base_w (the JARDIN deviation from the SPHINCS+-submission byte-wise MSB-first convention).  Invoked via `script/slh_dsa_keccak_128_24_fast_signer.py`.
+- `script/slh_dsa_keccak_128_24_fast_signer.py` — wrapper mirroring the SHA-2 one, caches to `signers/jardin-keccak-128-24/.cache/`.
+- `test/SLH-DSA-SHA2-128-24-Test.t.sol`, `test/SLH-DSA-keccak-128-24-Test.t.sol` — Forge FFI tests that sign with the C binaries and verify on-chain
 
 Legacy signers / UserOp / frame-tx (`legacy/script/`): `signer.py`,
 `jardin_signer.py`, `jardin_t0_signer.py`, `jardin_userop.py`,

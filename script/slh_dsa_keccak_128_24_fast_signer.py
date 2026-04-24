@@ -1,33 +1,26 @@
 #!/usr/bin/env python3
 """
-Fast SLH-DSA-SHA2-128-24 signer — wraps the forked sphincsplus C binary
-(signers/sphincsplus-128-24/slhdsa-sha2-128-24) and emits the same
-ABI-encoded (bytes32 seed, bytes32 root, bytes sig) format used by the
-pure-Python `slh_dsa_sha2_128_24_signer.py`.
+Fast JARDIN-Keccak-128-24 signer — wraps the forked sphincsplus-derived C
+binary at signers/jardin-keccak-128-24/jardin-keccak-128-24 and emits the
+same ABI-encoded (bytes32 seed, bytes32 root, bytes sig) format used by
+the SHA-2 fast-signer wrapper.
 
-The C binary produces a real NIST-params signature (h=22, d=1, a=24, k=6)
-in ~1-3 minutes; our pure-Python signer takes hours for the same task.
-Use this wrapper for Forge FFI tests and fixture generation.
-
-A disk cache is used: if a fixture with the same inputs is already on
-disk, we return it immediately.
+Keygen + sign at NIST params (h=22, d=1, a=24, k=6, w=4) takes ~11 min
+in pure C keccak on this box.  First invocation caches the result to disk
+under signers/jardin-keccak-128-24/.cache/; later invocations with the
+same inputs hit the cache and return in <100 ms.
 
 Usage:
-    python3 script/slh_dsa_sha2_128_24_fast_signer.py \\
+    python3 script/slh_dsa_keccak_128_24_fast_signer.py \\
         <master_sk_hex> <message_hex> [sig_counter]
-
-Same CLI shape as the pure-Python signer. Key derivation uses the JARDIN
-HMAC-SHA-512 scheme for parity; the 48-byte (sk_seed‖sk_prf‖pk_seed) seed
-is handed to the C binary.
 """
-
 import sys, os, json, hashlib, hmac, subprocess, argparse
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-BIN_PATH  = os.path.join(REPO_ROOT, "signers/sphincsplus-128-24/slhdsa-sha2-128-24")
-CACHE_DIR = os.path.join(REPO_ROOT, "signers/sphincsplus-128-24/.cache")
+BIN_PATH  = os.path.join(REPO_ROOT, "signers/jardin-keccak-128-24/jardin-keccak-128-24")
+CACHE_DIR = os.path.join(REPO_ROOT, "signers/jardin-keccak-128-24/.cache")
 
-N       = 16
+N = 16
 SIG_LEN = 3856
 
 def eprint(*a, **kw): print(*a, file=sys.stderr, **kw)
@@ -36,10 +29,10 @@ def hmac512(key, msg):
     return hmac.new(key, msg, hashlib.sha512).digest()
 
 def derive_seed_48(master_sk: bytes) -> bytes:
-    """Mirrors the JARDIN derivation used by slh_dsa_sha2_128_24_signer.py."""
-    sk_seed = hmac512(master_sk, b"JARDIN/SLH2128_24/SKSEED")[:N]
-    sk_prf  = hmac512(master_sk, b"JARDIN/SLH2128_24/SKPRF" )[:N]
-    pk_seed = hmac512(master_sk, b"JARDIN/SLH2128_24/PKSEED")[:N]
+    """Mirrors the JARDIN derivation used by slh_dsa_keccak_128_24_signer.py."""
+    sk_seed = hmac512(master_sk, b"JARDIN/SLHK128_24/SKSEED")[:N]
+    sk_prf  = hmac512(master_sk, b"JARDIN/SLHK128_24/SKPRF" )[:N]
+    pk_seed = hmac512(master_sk, b"JARDIN/SLHK128_24/PKSEED")[:N]
     return sk_seed + sk_prf + pk_seed
 
 def abi_encode(seed16: bytes, root16: bytes, sig: bytes) -> bytes:
@@ -51,9 +44,9 @@ def abi_encode(seed16: bytes, root16: bytes, sig: bytes) -> bytes:
     enc += sig + b"\x00" * ((32 - len(sig) % 32) % 32)
     return enc
 
-def _norm(s: str) -> str: return s.lower().removeprefix("0x")
+def _norm(s): return s.lower().removeprefix("0x")
 
-def cache_key(master_sk_hex: str, message_hex: str, sig_counter: int) -> str:
+def cache_key(master_sk_hex, message_hex, sig_counter):
     h = hashlib.sha256()
     h.update(_norm(master_sk_hex).encode())
     h.update(b"|")
@@ -72,7 +65,7 @@ def main():
 
     if not os.path.isfile(BIN_PATH):
         eprint(f"  C binary not found at {BIN_PATH}")
-        eprint(f"  Build with:  (cd signers/sphincsplus-128-24 && make)")
+        eprint(f"  Build with:  (cd signers/jardin-keccak-128-24 && make)")
         sys.exit(1)
 
     master_sk = bytes.fromhex(args.master_sk_hex.removeprefix("0x"))
@@ -81,12 +74,17 @@ def main():
 
     msg_hex = args.message_hex.removeprefix("0x")
     if len(msg_hex) % 2: msg_hex = "0" + msg_hex
-    # C CLI takes message as raw hex bytes; pass through as-is.
 
-    # optrand for deterministic test sigs: derive from sig_counter
+    # On-chain convention: bytes32 message. Pad/truncate to 32 bytes.
+    msg_bytes = bytes.fromhex(msg_hex)
+    if len(msg_bytes) < 32:
+        msg_bytes = msg_bytes + b"\x00" * (32 - len(msg_bytes))
+    elif len(msg_bytes) > 32:
+        msg_bytes = msg_bytes[-32:]
+    msg_hex_32 = msg_bytes.hex()
+
     optrand = args.sig_counter.to_bytes(4, "big") + b"\x00" * (N - 4)
 
-    # Disk cache
     os.makedirs(CACHE_DIR, exist_ok=True)
     key = cache_key(args.master_sk_hex, args.message_hex, args.sig_counter)
     cache_path = os.path.join(CACHE_DIR, f"{key}.hex")
@@ -99,9 +97,9 @@ def main():
 
     seed48 = derive_seed_48(master_sk)
 
-    eprint(f"  invoking C signer (h=22, a=24 — ~1-3 min)...")
+    eprint(f"  invoking C signer (h=22, a=24 — ~11 min)...")
     result = subprocess.run(
-        [BIN_PATH, seed48.hex(), msg_hex, optrand.hex()],
+        [BIN_PATH, seed48.hex(), msg_hex_32, optrand.hex()],
         capture_output=True, text=True)
     if result.returncode != 0:
         eprint(f"  C signer failed (rc={result.returncode}):")
