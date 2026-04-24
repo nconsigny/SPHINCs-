@@ -27,7 +27,7 @@ There are different ways to construct the SPHINCS signature scheme. Existing lit
 - Plain SPHINCS+ noted SPX with the JARDIN 32-byte ADRS kernel. n=128-bit, h=20, d=5, h'=4, plain WOTS+ checksum, keccak256 truncated to 128 bits. Signature-count cap = 2²⁰; security stays ≥128 bits all the way to that cap. (The JARDIN hybrid-account stack references this same contract as `JardinSpxVerifier` - see [`nconsigny/JARDIN`](https://github.com/nconsigny/JARDIN).)
 - **SLH-DSA-128-24** - NIST SP 800-230 (April 2026 IPD), n=128-bit, single-tree (d=1, h=22), w=4, **2²⁴ signature limit per key** (NIST hard cap, not just a security-degradation threshold), 3,856-byte signature.
 
-| Variant | Family | h | d | a | k | w | l | swn | Sig | sign_h | Verify | Frame | 4337 | sec_14 | sec_16 | sec_18 | sec_20 |
+| Variant | Family | h | d | a | k | w | l | swn | Sig | sign_h | Verify | Frame | 4337 | sec_10 | sec_14 | sec_16 | sec_18 | sec_20 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **C7** | WOTS+C / FORS+C | 24 | 2 | 16 | 8 | 8 | 43 | 151 | 3,704 B | 4.3 M | 127 K | 210 K | 318 K | 128 | 128 | 128 | 128 |
 | **C11** | WOTS+C / FORS+C | 16 | 2 | 11 | 13 | 8 | 43 | 203 | 3,976 B | 292 K | 116 K | 202 K | 308 K | 128 | 118.3 | 104.5 | 86.1 |
