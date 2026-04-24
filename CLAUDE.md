@@ -48,7 +48,7 @@ Every verifier is deployed once as a stateless pure contract and shared by all a
     └── SphincsFrameAccount   (EIP-8141, keys embedded in bytecode via PUSH32)
 ```
 
-All active verifiers share one 32-byte ADRS layout and one set of tweakable-hash primitives (see `script/jardin_primitives.py`). A device port needs a single `sphincs_th*` implementation covering every path.
+The **C-series, C12, and SLH-DSA-Keccak** verifiers all share the JARDIN kernel: one 32-byte ADRS layout and the `keccak(seed32 ‖ adrs32 ‖ inputs)` tweakable-hash shape (see `script/jardin_primitives.py`). A device port covers those four with a single `sphincs_th*` implementation. **SLH-DSA-SHA2-128-24 is the outlier** — it uses FIPS 205's 22-byte compressed ADRSc + SHA-256 with the nested MGF1 Hmsg, so it needs its own primitive set.
 
 ### Current contracts (`src/`)
 
