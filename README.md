@@ -12,11 +12,15 @@
 
 ---
 
-Post-quantum signature verification on Ethereum using SPHINCs- - lightweight hash-based signatures derived from SPHINCS+. This repo focuses on the pure SPHINCs- research stack: the stateless C-series (C7 / C11 verifier + `SphincsAccount` / `SphincsAccountFactory` / `SphincsFrameAccount`), the plain-SPHINCS+ variant **C12** (`SPHINCs-C12Asm.sol`), and two new NIST SP 800-230 SLH-DSA-128-24 verifiers (a FIPS 205 bit-exact SHA-2 variant and a JARDIN-convention Keccak twin).
+## Introduction
 
-The C-series, C12, and SLH-DSA-Keccak verifiers all share the **JARDIN kernel**: one 32-byte ADRS layout (`layer4‖tree8‖type4‖kp4‖ci4‖cp4‖ha4`) and one `keccak256` tweakable-hash shape (`keccak(seed32 ‖ adrs32 ‖ inputs)`). A device port covers those four variants with a single `sphincs_th*` implementation. **SLH-DSA-SHA2-128-24 is the outlier** - it sticks to the FIPS 205 22-byte compressed ADRSc and SHA-256 (with the nested MGF1-based Hmsg), so it needs its own primitive set.
+You probably heard that quantum computers will eventually break ECDSA, the signature scheme that secures Ethereum and Bitcoin accounts today. Recent resource estimates by Babbush et al. [1] bring this timeline closer than previously expected, making post-quantum signature verification at the execution layer an urgent problem. NIST has already standardized several PQ signature schemes, including the lattice-based ML-DSA (FIPS 204), with the lattice-based FN-DSA (Falcon) still in draft. Hash-based signatures are an attractive alternative: their security rests entirely on the properties of hash functions, well-understood with minimal assumptions these primitives are simpler to understand than lattice constructions. NIST standardized SLH-DSA [6] which comes with large signature size.
 
-Earlier verifier variants (C6 / C8 / C9 / C10) are frozen in [`legacy/`](./legacy/README.md) - same 32-byte ADRS kernel, different parameters.
+## Abstract
+
+We describe SPHINCs-, a family of EVM-optimised variants of SLH-DSA that achieve 117 to 156K gas for pure on-chain signature verification without any precompile. The key modifications is substituting SHAKE256 with the native keccak256 opcode, a significant reduction of the signature budget. We detail how each SPHINCS+ parameter affects EVM verification cost versus signer burden, present a calibrated gas model fitted against real Solidity/Yul traces, and report measured gas costs for six variants deployed on Sepolia with ERC-4337 and ethrex devnet for EIP-8141. The variants described in the paper give a trade-off between signing budget per key pair, verifier cost in gas and signer keygen and signing keccak calls (hardware wallet friendliness).
+
+Earlier verifier variants (C6 / C8 / C9 / C10) are frozen in [`legacy/`](./legacy/README.md), same 32-byte ADRS kernel, different parameters.
 
 The full JARDÍN hybrid-account design (ECDSA + SPHINCs-, ERC-4337 + EIP-8141, the plain-SPHINCS+ registration path, the plain-FORS compact path, all the Jardin* contracts and signers) lives in a separate repo: [`nconsigny/JARDIN`](https://github.com/nconsigny/JARDIN).
 
@@ -51,6 +55,10 @@ Active verifiers fall into three families:
 C11 and C12 are light enough to run on a hardware wallet, 390s and 47.5s signature times on a ST33K1M5 secure element (Ledger nano S+). the a C12 has the lowest hardware signer cost of all (36 K hashes - plain SPX with d=5 hypertree skips most tree-hash work) at the price of a 6,512-byte sig. SLH-DSA-SHA2-128-24 is the FIPS-aligned alternative: very large signer cost (~1.9 B hashes because d=1 forces a 2²² single XMSS tree), constant 128-bit security up to the 2²⁴ cap. The Keccak twin trades bit-exact NIST compliance for ~34 % cheaper on-chain verification (but not a very interesting trade off as it keeps the very high sign_h)
 
 ## Stateless SPHINCs- Architecture
+
+### Shared hash kernel
+
+The C-series, C12, and SLH-DSA-Keccak verifiers all share the **JARDIN kernel**: one 32-byte ADRS layout (`layer4‖tree8‖type4‖kp4‖ci4‖cp4‖ha4`) and one `keccak256` tweakable-hash shape (`keccak(seed32 ‖ adrs32 ‖ inputs)`). A device port covers those four variants with a single `sphincs_th*` implementation. **SLH-DSA-SHA2-128-24 is the outlier** - it sticks to the FIPS 205 22-byte compressed ADRSc and SHA-256 (with the nested MGF1-based Hmsg), so it needs its own primitive set.
 
 ### Shared Verifier Model
 
