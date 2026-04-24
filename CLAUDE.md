@@ -178,6 +178,14 @@ Current signers + UserOp / frame-tx builders:
 - `script/DeployJardineroSepolia.s.sol` — Forge deploy script for SPX + plain-FORS + factory
 - `signer-wasm/` — Rust WASM signer with BIP-39/44 key derivation (targets the current stack)
 
+SLH-DSA-128-24 experimental signers (NIST SP 800-230 parameter set, research prototype):
+- `src/SLH-DSA-SHA2-128-24verifier.sol` — FIPS 205 bit-exact SHA-2 verifier (uses the SHA-256 precompile)
+- `src/SLH-DSA-keccak-128-24verifier.sol` — JARDIN-style Keccak twin of the above (keccak opcode, non-NIST)
+- `script/slh_dsa_sha2_128_24_signer.py`, `script/slh_dsa_keccak_128_24_signer.py` — pure-Python reference signers (slow — keygen builds a 2^22-leaf XMSS)
+- `signers/sphincsplus-128-24/` — fork of sphincs/sphincsplus ref with a `params-*-128-24.h` header and w=4 support; ~2-4 min for a full NIST-params sign, callable from Forge tests via `script/slh_dsa_sha2_128_24_fast_signer.py`
+- `signers/sphincsplus-128-24/crosscheck.py` — validates that the C and Python signers produce identical bytes at matching params
+- `test/SLH-DSA-SHA2-128-24-Test.t.sol` — Forge FFI test that signs with the C binary and verifies on-chain
+
 Legacy signers / UserOp / frame-tx (`legacy/script/`): `signer.py`,
 `jardin_signer.py`, `jardin_t0_signer.py`, `jardin_userop.py`,
 `jardin_t0_userop.py`, `jardin_frame_tx.py`, etc. — see `legacy/README.md`.

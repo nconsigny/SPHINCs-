@@ -35,6 +35,13 @@ script/.jardinero_state.json
 script/.jardinero_vh_state.json
 script/.jardin_spx_addresses.json
 script/.jardin_spx_state.json
+script/.slhdsa_128_24_addresses.json
+
+# sphincsplus C fork build artifacts
+signers/sphincsplus-128-24/*.o
+signers/sphincsplus-128-24/slhdsa-sha2-128-24
+signers/sphincsplus-128-24/.cache/
+signers/sphincsplus-128-24/__pycache__/
 
 # Rust/WASM build artifacts
 signer-wasm/target/
