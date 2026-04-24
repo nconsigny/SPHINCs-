@@ -41,14 +41,14 @@ Active verifiers fall into three families:
 | **SLH-DSA-Keccak-128-24** | SLH-DSA-128-24 | 22 | 1 | 24 | 6 | 4 | 68 | - | 3,856 B | ~1.9 B keccak | ~94 K* | - | - | 128 | 128 | 128 | 128 |
 
 - **Family**: the SPHINCS+ construction style (C-series WOTS+C/FORS+C with counter grinding; C12 plain SPX with plain WOTS+ checksum; SLH-DSA-128-24 with w=4, d=1 and a 2²⁴-sig hard cap).
-- **sign_h**: hash-function calls during keygen + sign (determines signer speed). C-series + C12 use keccak256; SHA-2 SLH-DSA uses SHA-256.
+- **sign_h**: hash-function calls during keygen + sign (determines signer speed). C-series + C12 use keccak256; SHA-2 SLH-DSA uses SHA-256. This is the "hardware cost" a high number here means it will be unable to run in a constrained environement like a hardware wallet. 
 - **swn**: small-Winternitz-number counter bits used by the WOTS+C / FORS+C grinding. Plain SPX and SLH-DSA don't counter-grind.
 - **sec_N**: security bits at 2^N signatures per key. SLH-DSA-*-128-24 is flat 128-bit up to the **2²⁴ hard cap**, undefined beyond.
 - **Verify (pure)**: Foundry `gasleft()` measurement of the assembly block. SLH-DSA-128-24 numbers (marked `*`) exclude tx base + calldata.
 - **Frame**: total EIP-8141 frame-tx gas (ethrex). C12 / SLH-DSA-128-24 are not yet wired to frame accounts in this repo.
 - **4337**: total ERC-4337 `handleOps` tx gas (Sepolia). Same caveat - the 4337 wiring for C7 / C11 lives in `SphincsAccount` + `SphincsAccountFactory`; no SLH-DSA or C12 account exists here yet.
 
-C7 is the C-series gas champion with full 128-bit security up to 2²⁰ signatures. C11 is faster to sign (292 K hashes) but loses security after 2¹⁶ signatures. C12 has the lowest signer cost of all (36 K hashes - plain SPX with d=5 hypertree skips most tree-hash work) at the price of a 6,512-byte sig. SLH-DSA-SHA2-128-24 is the FIPS-aligned alternative: larger signer cost (~1.9 B hashes because d=1 forces a 2²² single XMSS tree), constant 128-bit security up to the 2²⁴ cap. The Keccak twin trades bit-exact NIST compliance for ~34 % cheaper on-chain verification - every F / H / T is a native `keccak256` opcode instead of a `staticcall(0x02)` to the SHA-256 precompile.
+C11 and C12 are light enough to run on a hardware wallet, 390s and 47.5s signature times on a ST33K1M5 secure element (Ledger nano S+). the a C12 has the lowest hardware signer cost of all (36 K hashes - plain SPX with d=5 hypertree skips most tree-hash work) at the price of a 6,512-byte sig. SLH-DSA-SHA2-128-24 is the FIPS-aligned alternative: very large signer cost (~1.9 B hashes because d=1 forces a 2²² single XMSS tree), constant 128-bit security up to the 2²⁴ cap. The Keccak twin trades bit-exact NIST compliance for ~34 % cheaper on-chain verification (but not a very interesting trade off as it keeps the very high sign_h)
 
 ## Stateless SPHINCs- Architecture
 
