@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 SPHINCs- is a research prototype for lightweight SPHINCS+ variants on Ethereum. Three families of on-chain verifiers live here:
 
 1. **C-series** (C7, C11 in `src/`; C6/C8/C9/C10 in `legacy/src/`) — stateless WOTS+C / FORS+C (ePrint 2025/2203), unlimited signatures per key, n=128.
-2. **Plain SPHINCS+ (SPX)** — JARDIN 32-byte ADRS + keccak256 truncated to 16 B, h=20, d=5, a=7, k=20, w=8. 6,512-B sig, ~276 K verify gas.
+2. **C12** (`src/SPHINCs-C12Asm.sol`) — plain SPHINCS+ (SPX) variant of the SPHINCs- family, with the JARDIN 32-byte ADRS kernel + keccak256 truncated to 16 B. h=20, d=5, a=7, k=20, w=8, l=45. 6,512-B sig, ~276 K verify gas. Cross-referenced by the JARDIN repo as `JardinSpxVerifier`.
 3. **SLH-DSA-128-24** — NIST SP 800-230 parameter set (d=1, h=22, a=24, k=6, w=4). Two variants:
    - FIPS 205 bit-exact SHA-2 (`src/SLH-DSA-SHA2-128-24verifier.sol`), uses the SHA-256 precompile at 0x02.
    - JARDIN-convention Keccak twin (`src/SLH-DSA-keccak-128-24verifier.sol`), uses the native `keccak256` opcode.
@@ -59,7 +59,7 @@ All active verifiers share one 32-byte ADRS layout and one set of tweakable-hash
 | `SphincsAccount.sol` | ERC-4337 hybrid account (ECDSA + SPHINCs- C-series), verifier pluggable via immutable |
 | `SphincsAccountFactory.sol` | CREATE2 factory for `SphincsAccount` |
 | `SphincsFrameAccount.sol` | EIP-8141 pure-PQ frame account; keys embedded in bytecode (no SLOAD) |
-| `JardinSpxVerifier.sol` | Plain SPHINCS+ (SPX) verifier with JARDIN 32-byte ADRS — 6,512-B sig, ~276 K verify |
+| `SPHINCs-C12Asm.sol` | C12 — plain SPHINCS+ verifier with JARDIN 32-byte ADRS. 6,512-B sig, ~276 K verify |
 | `SLH-DSA-SHA2-128-24verifier.sol` | FIPS 205 bit-exact SLH-DSA-SHA2-128-24 verifier (SHA-256 precompile) |
 | `SLH-DSA-keccak-128-24verifier.sol` | JARDIN-convention SLH-DSA-Keccak-128-24 verifier (keccak opcode) |
 | `SLH-DSA-SHA2-128-24-Diagnostic.sol` | Debug tool used to bisect the SHA-2 verifier during development |
@@ -105,9 +105,9 @@ NIST SP 800-230 (April 2026 IPD) parameter set with a hard 2^24 signature limit 
 - `script/signer.py` — Python SPHINCs- C-series signer (C6–C11 all supported; slow, ~30 s per C6 sig)
 - `signer-wasm/` — Rust/WASM C-series signer with BIP-39/44 key derivation
 
-### Plain-SPHINCS+ (SPX) signer
+### C12 (plain SPHINCS+) signer
 
-- `script/jardin_spx_signer.py` — Python SPX signer (h=20, d=5, w=8). Self-contained; uses `jardin_primitives.py` for ADRS + tweakable hashes.
+- `script/jardin_spx_signer.py` — Python signer for C12 (plain SPHINCS+, h=20, d=5, w=8). Self-contained; uses `jardin_primitives.py` for ADRS + tweakable hashes. Name kept as `jardin_spx_signer.py` because the same file is shared with the JARDIN repo's hybrid-account stack.
 
 ### SLH-DSA-128-24 signers
 
@@ -128,7 +128,7 @@ BIP-39 mnemonic → HMAC-SHA512("sphincs-c6-v1", seed) → SPHINCs- keys (quantu
 
 ## Gas Optimizations Applied
 
-- Branchless Merkle swap: `mstore(xor(0x40, s), node)` (Solady pattern) — used in the 32-byte-aligned C-series and SPX verifiers. The SLH-DSA SHA-2 verifier has a 16-byte-aligned L/R layout that REQUIRES L-first-then-R order; see the `switch and(pathIdx, 1)` blocks.
+- Branchless Merkle swap: `mstore(xor(0x40, s), node)` (Solady pattern) — used in the 32-byte-aligned C-series, C12, and SLH-DSA-Keccak verifiers. The SLH-DSA SHA-2 verifier has a 16-byte-aligned L/R layout that REQUIRES L-first-then-R order; see the `switch and(pathIdx, 1)` blocks.
 - SHL for power-of-2 multiplications (`shl(4, i)` instead of `mul(i, 16)`)
 - Hoisted loop-invariant chain address
 - Domain-separated H_msg (prevents cross-variant collisions)

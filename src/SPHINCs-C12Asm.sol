@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-/// @title JardinSpxVerifier — plain SPHINCS+ verifier (JARDIN 32-byte ADRS)
-/// @dev Parameters: n=16, h=20, d=5, h'=4, a=7, k=20, w=8, l=45 (plain WOTS+
-///      checksum). 6,512 B signature, ~36.6K keccak calls to sign.
+/// @title SPHINCs-C12Asm — plain SPHINCS+ (SPX) verifier, JARDIN 32-byte ADRS
+/// @dev The C12 variant of the SPHINCs- family.  Unlike C6..C11 (which use the
+///      WOTS+C / FORS+C compact constructions), C12 is plain SPHINCS+ with
+///      standard WOTS+ checksum and standard FORS — a hypertree of depth
+///      d=5, per-layer XMSS height h'=4.
 ///
-///      Matches the JARDÍN family byte layout end-to-end: 32-byte ADRS,
-///      seed‖adrs‖args keccak inputs, LSB-first digest parsing — so the
-///      device shares one set of tweakable-hash primitives with the C11 /
-///      FORS+C / plain-FORS verifiers.
+///      Parameters: n=16, h=20, d=5, h'=4, a=7, k=20, w=8, l=45.
+///      6,512 B signature, ~36.6K keccak calls to sign, ~276K verify.
+///
+///      Matches the JARDIN family byte layout end-to-end: 32-byte ADRS,
+///      seed‖adrs‖args keccak inputs, LSB-first digest parsing — so a device
+///      port shares one tweakable-hash kernel with C7 / C11 and with the
+///      SLH-DSA-Keccak-128-24 verifier in this repo.
 ///
 ///      Hash primitives (all keccak256 truncated to 16B):
 ///        F     : keccak(seed32 ‖ adrs32 ‖ M32)                      96 B
@@ -21,7 +26,7 @@ pragma solidity ^0.8.28;
 ///      ADRS (32 bytes, four uint32 words + a uint64 tree word):
 ///        layer(4) ‖ tree(8) ‖ type(4) ‖ kp(4) ‖ ci(4) ‖ cp(4) ‖ ha(4)
 ///
-///      SPX field mapping:
+///      C12 field mapping:
 ///        type 0 WOTS_HASH    kp=leaf   ci=chain_i   cp=hash_step   ha=0
 ///        type 1 WOTS_PK      kp=leaf   ci=0         cp=0           ha=0
 ///        type 2 XMSS_TREE    kp=0      ci=0         cp=height      ha=parentIdx
@@ -31,7 +36,7 @@ pragma solidity ^0.8.28;
 ///      Signature layout (6,512 bytes, constant):
 ///        R(32) ‖ FORS(k=20 × (sk 16B + auth 7×16B)) = 2,560
 ///              ‖ Hypertree(d=5 layers × (WOTS 45×16B + XMSS auth 4×16B)) = 3,920
-contract JardinSpxVerifier {
+contract SPHINCs_C12Asm {
 
     function verify(bytes32 pkSeed, bytes32 pkRoot, bytes32 message, bytes calldata sig)
         external pure returns (bool valid)
