@@ -88,11 +88,14 @@ NIST SP 800-230 (April 2026 IPD) parameter set with a hard 2^24 signature limit 
 
 | Step | Operations | Calls |
 |---|---|---:|
-| Keygen — 2^22-leaf XMSS | leaves × (68 WOTS chains × 3 F + 1 T_l) + 2^22 − 1 H | ~864 M |
-| Sign — FORS (6 × 2^24 leaves) | 6 × (leaves + internal + 1 T_k) | ~201 M |
-| Sign — XMSS tree-hash pass (auth path) | same as keygen | ~864 M |
+| Keygen — 2²²-leaf XMSS (one-time per key) | leaves × (68 WOTS chains × 3 F + 1 T_l) + 2²² − 1 H | ~864 M |
+| Sign — FORS (6 × 2²⁴ leaves; can't be cached across signs — different leaf_idx → different FORS keys) | 6 × (leaves + internal + 1 T_k) | ~201 M |
+| Sign — XMSS tree-hash pass for auth path (**skippable** if the signer caches the 2²²-leaf tree after keygen, ~128 MB RAM) | same work as keygen | ~864 M |
 | Sign — WOTS on FORS-pk | 68 chains × ~1.5 F avg | ~100 |
-| **Total keygen + sign** | | **≈ 1.93 × 10⁹** |
+| **Per signature, cold signer** (hardware wallet, no tree cache) | FORS + XMSS rebuild + WOTS | **≈ 1.07 × 10⁹** |
+| **Per signature, cached signer** (keeps 128 MB XMSS tree in RAM) | FORS + WOTS only | **≈ 2.01 × 10⁸** |
+
+So a desktop-class signer that holds the XMSS tree in RAM amortises keygen across many sigs and pays ~200 M hashes per subsequent signature — still ~50× more than C11's per-sign cost, because the FORS work (2^24 × 6 ≈ 100 M leaves) is redone every time. A hardware-wallet-class signer without the RAM to cache the XMSS tree pays the full ~1.07 B per signature.
 
 **Measured on-chain verify gas** (Sepolia top-level tx with 3,872-B calldata):
 - SHA-2 variant: 225,642 gas (pure assembly ~142 K)
