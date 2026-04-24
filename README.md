@@ -32,13 +32,13 @@ Active verifiers fall into three families:
   - **SHA-2 variant** — FIPS 205 bit-exact: 22-byte compressed **ADRSc** (`layer(1) ‖ tree(8) ‖ type(1) ‖ 12 B type-dependent`), SHA-256 primitive, F / H / T input = `PK.seed(16) ‖ zeros(48) ‖ ADRSc(22) ‖ payload`, nested `Hmsg = MGF1-SHA-256(R ‖ seed ‖ SHA-256(R ‖ seed ‖ root ‖ M), m=21)`, byte-wise LSB-first digest-to-indices (same convention as the sphincs/sphincsplus reference and PQClean).
   - **Keccak variant** — JARDIN twin: 32-byte full ADRS (`layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4`), keccak256 primitive, F / H / T input = `seed32 ‖ adrs32 ‖ payload`, one-shot `Hmsg = keccak(seed ‖ root ‖ R ‖ msg ‖ 0xFF..FB)` (no MGF1), LSB-first digest-to-indices on the 256-bit keccak output interpreted as a single big-endian integer.
 
-| Variant | Family | h | a | k | w | l | swn | Sig | sign_h | Verify | Frame | 4337 | sec_14 | sec_16 | sec_18 | sec_20 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **C7** | WOTS+C / FORS+C | 24 | 16 | 8 | 8 | 43 | 151 | 3,704 B | 4.3 M | 127 K | 210 K | 318 K | 128 | 128 | 128 | 128 |
-| **C11** | WOTS+C / FORS+C | 16 | 11 | 13 | 8 | 43 | 203 | 3,976 B | 292 K | 116 K | 202 K | 308 K | 128 | 118.3 | 104.5 | 86.1 |
-| **C12** | Plain SPX | 20 | 7 | 20 | 8 | 45 | — | 6,512 B | 36.6 K | 276 K | — | — | 128 | 128 | 128 | 127.8 |
-| **SLH-DSA-SHA2-128-24** | SLH-DSA-128-24 | 22 | 24 | 6 | 4 | 68 | — | 3,856 B | ~1.9 B SHA-256 | ~142 K* | — | — | 128 | 128 | 128 | 128 |
-| **SLH-DSA-Keccak-128-24** | SLH-DSA-128-24 | 22 | 24 | 6 | 4 | 68 | — | 3,856 B | ~1.9 B keccak | ~94 K* | — | — | 128 | 128 | 128 | 128 |
+| Variant | Family | h | d | a | k | w | l | swn | Sig | sign_h | Verify | Frame | 4337 | sec_14 | sec_16 | sec_18 | sec_20 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **C7** | WOTS+C / FORS+C | 24 | 2 | 16 | 8 | 8 | 43 | 151 | 3,704 B | 4.3 M | 127 K | 210 K | 318 K | 128 | 128 | 128 | 128 |
+| **C11** | WOTS+C / FORS+C | 16 | 2 | 11 | 13 | 8 | 43 | 203 | 3,976 B | 292 K | 116 K | 202 K | 308 K | 128 | 118.3 | 104.5 | 86.1 |
+| **C12** | Plain SPX | 20 | 5 | 7 | 20 | 8 | 45 | — | 6,512 B | 36.6 K | 276 K | — | — | 128 | 128 | 128 | 127.8 |
+| **SLH-DSA-SHA2-128-24** | SLH-DSA-128-24 | 22 | 1 | 24 | 6 | 4 | 68 | — | 3,856 B | ~1.9 B SHA-256 | ~142 K* | — | — | 128 | 128 | 128 | 128 |
+| **SLH-DSA-Keccak-128-24** | SLH-DSA-128-24 | 22 | 1 | 24 | 6 | 4 | 68 | — | 3,856 B | ~1.9 B keccak | ~94 K* | — | — | 128 | 128 | 128 | 128 |
 
 - **Family**: the SPHINCS+ construction style (C-series WOTS+C/FORS+C with counter grinding; C12 plain SPX with plain WOTS+ checksum; SLH-DSA-128-24 with w=4, d=1 and a 2²⁴-sig hard cap).
 - **sign_h**: hash-function calls during keygen + sign (determines signer speed). C-series + C12 use keccak256; SHA-2 SLH-DSA uses SHA-256.
