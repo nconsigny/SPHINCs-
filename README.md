@@ -21,13 +21,11 @@ One can simply build a smart account using any of these verifiers, they are stat
 
 ## Variants
 
-Active verifiers fall into three families:
+There are different ways to construct the SPHINActive verifiers fall into three families:
 
-- **C-series** (C7, C11) - WOTS+C / FORS+C (ePrint 2025/2203), n=128-bit, d=2, domain-separated H_msg (160-byte hash). Signature-count cap = 2^h (C7 → 2²⁴, C11 → 2¹⁶); security degrades with N as shown in the `sec_N` columns below.
-- **C12** - plain SPHINCS+ (SPX) with the JARDIN 32-byte ADRS kernel. n=128-bit, h=20, d=5, h'=4, plain WOTS+ checksum, keccak256 truncated to 128 bits. Signature-count cap = 2²⁰; security stays ≥128 bits all the way to that cap. (The JARDIN hybrid-account stack references this same contract as `JardinSpxVerifier` - see [`nconsigny/JARDIN`](https://github.com/nconsigny/JARDIN).)
-- **SLH-DSA-128-24** - NIST SP 800-230 (April 2026 IPD), n=128-bit, single-tree (d=1, h=22), w=4, **2²⁴ signature limit per key** (NIST hard cap, not just a security-degradation threshold), 3,856-byte signature. Two wire-level layouts:
-  - **SHA-2 variant** - FIPS 205 bit-exact: 22-byte compressed **ADRSc** (`layer(1) ‖ tree(8) ‖ type(1) ‖ 12 B type-dependent`), SHA-256 primitive, F / H / T input = `PK.seed(16) ‖ zeros(48) ‖ ADRSc(22) ‖ payload`, nested `Hmsg = MGF1-SHA-256(R ‖ seed ‖ SHA-256(R ‖ seed ‖ root ‖ M), m=21)`, byte-wise LSB-first digest-to-indices (same convention as the sphincs/sphincsplus reference and PQClean).
-  - **Keccak variant** - JARDIN twin: 32-byte full ADRS (`layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4`), keccak256 primitive, F / H / T input = `seed32 ‖ adrs32 ‖ payload`, one-shot `Hmsg = keccak(seed ‖ root ‖ R ‖ msg ‖ 0xFF..FB)` (no MGF1), LSB-first digest-to-indices on the 256-bit keccak output interpreted as a single big-endian integer.
+- WOTS+C / FORS+C (ePrint 2025/2203), n=128-bit, d=2, domain-separated H_msg (160-byte hash). Signature-count cap = 2^h (C7 → 2²⁴, C11 → 2¹⁶); security degrades with N as shown in the `sec_N` columns below.
+- Plain SPHINCS+ noted SPX with the JARDIN 32-byte ADRS kernel. n=128-bit, h=20, d=5, h'=4, plain WOTS+ checksum, keccak256 truncated to 128 bits. Signature-count cap = 2²⁰; security stays ≥128 bits all the way to that cap. (The JARDIN hybrid-account stack references this same contract as `JardinSpxVerifier` - see [`nconsigny/JARDIN`](https://github.com/nconsigny/JARDIN).)
+- **SLH-DSA-128-24** - NIST SP 800-230 (April 2026 IPD), n=128-bit, single-tree (d=1, h=22), w=4, **2²⁴ signature limit per key** (NIST hard cap, not just a security-degradation threshold), 3,856-byte signature.
 
 | Variant | Family | h | d | a | k | w | l | swn | Sig | sign_h | Verify | Frame | 4337 | sec_14 | sec_16 | sec_18 | sec_20 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -51,7 +49,11 @@ C11 and C12 are light enough to run on a hardware wallet, 390s and 47.5s signatu
 
 ### Shared hash kernel
 
-The C-series, C12, and SLH-DSA-Keccak verifiers all share the **JARDIN kernel**: one 32-byte ADRS layout (`layer4‖tree8‖type4‖kp4‖ci4‖cp4‖ha4`) and one `keccak256` tweakable-hash shape (`keccak(seed32 ‖ adrs32 ‖ inputs)`). A device port covers those four variants with a single `sphincs_th*` implementation. **SLH-DSA-SHA2-128-24 is the outlier** - it sticks to the FIPS 205 22-byte compressed ADRSc and SHA-256 (with the nested MGF1-based Hmsg), so it needs its own primitive set.
+The C-series, C12, and SLH-DSA-Keccak verifiers all share the **JARDIN kernel**: one 32-byte ADRS layout (`layer4‖tree8‖type4‖kp4‖ci4‖cp4‖ha4`) and one `keccak256` tweakable-hash shape (`keccak(seed32 ‖ adrs32 ‖ inputs)`). A device port covers those four variants with a single `sphincs_th*` implementation. **SLH-DSA-SHA2-128-24 is the outlier** - it sticks to the FIPS 205 22-byte compressed ADRSc and SHA-256 (with the nested MGF1-based Hmsg), so it needs its own primitive set. **ADRSc** (`layer(1) ‖ tree(8) ‖ type(1) ‖ 12 B type-dependent`), SHA-256 primitive, F / H / T input = `PK.seed(16) ‖ zeros(48) ‖ ADRSc(22) ‖ payload`, nested `Hmsg = MGF1-SHA-256(R ‖ seed ‖ SHA-256(R ‖ seed ‖ root ‖ M), m=21)`, byte-wise LSB-first digest-to-indices (same convention as the sphincs/sphincsplus reference and PQClean).
+
+For the **SLH-DSA-128-24** family we have two wire-level layouts:
+  - **SHA-2 variant** - FIPS 205 bit-exact:
+  - **Keccak variant** - JARDIN twin: 32-byte full ADRS (`layer4 ‖ tree8 ‖ type4 ‖ kp4 ‖ ci4 ‖ cp4 ‖ ha4`), keccak256 primitive, F / H / T input = `seed32 ‖ adrs32 ‖ payload`, one-shot `Hmsg = keccak(seed ‖ root ‖ R ‖ msg ‖ 0xFF..FB)` (no MGF1), LSB-first digest-to-indices on the 256-bit keccak output interpreted as a single big-endian integer.
 
 ### Shared Verifier Model
 
