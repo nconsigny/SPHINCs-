@@ -15,7 +15,7 @@
 
 Welcome to SPHINCs-, a family of EVM-optimised variants of SLH-DSA and the recently proposed [SLH-DSA-SHA2-128-24](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-230.ipd.pdf). They all achieve low gas cost for pure on-chain signature verification without any precompile which makes them useful today without any ethereum hardfork. The key modifications is substituting SHAKE256 with the native keccak256 opcode and a significant reduction of the signature budget. The variants described in the repo give a trade-off between signing budget per key pair, verifier cost in gas and signer keygen and signing keccak calls (hardware wallet friendliness).
 
-One can simply build a smart account using any of these verifiers, they are stateless and they maintain 128bits up their specified limits. For a efficient design that works on constrained device you can use the JARDÍN account design (ECDSA + SPHINCs- for ERC-4337 or EIP-8141) are available for this. The SPHINCS+ registration path, the FORS compact path, all the JARDIN contracts and signers lives in a separate repo: [`nconsigny/JARDIN`](https://github.com/nconsigny/JARDIN).
+One can simply build a smart account using any of these verifiers, they are stateless and they maintain 128bits up their specified limits. For a efficient design that works on constrained device you can use the JARDÍN account design (A combination of SPHINCs- with a smaller compact path) are available for this. The SPHINCS+ registration path, the FORS compact path, all the JARDIN contracts and signers lives in a separate repo: [`nconsigny/JARDIN`](https://github.com/nconsigny/JARDIN).
 
 ---
 
