@@ -76,6 +76,16 @@ contract SLH_DSA_SHA2_128_24_Test is Test {
         verifier.verify(cachedSeed, cachedRoot, MSG, bad);
     }
 
+    function testRejectsNonCanonicalSeed() public {
+        vm.expectRevert(bytes("Invalid public key"));
+        verifier.verify(bytes32(uint256(cachedSeed) | 1), cachedRoot, MSG, cachedSig);
+    }
+
+    function testRejectsNonCanonicalRoot() public {
+        vm.expectRevert(bytes("Invalid public key"));
+        verifier.verify(cachedSeed, bytes32(uint256(cachedRoot) | 1), MSG, cachedSig);
+    }
+
     function _assertTamperFails(uint256 offset) internal view {
         bytes memory tampered = new bytes(cachedSig.length);
         for (uint256 i = 0; i < cachedSig.length; i++) tampered[i] = cachedSig[i];

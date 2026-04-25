@@ -52,6 +52,14 @@ contract SLH_DSA_SHA2_128_24_Verifier {
                 revert(0x00, 0x64)
             }
 
+            if or(iszero(eq(pkSeed, and(pkSeed, N_MASK))), iszero(eq(pkRoot, and(pkRoot, N_MASK)))) {
+                mstore(0x00, 0x08c379a000000000000000000000000000000000000000000000000000000000)
+                mstore(0x04, 0x20)
+                mstore(0x24, 18)
+                mstore(0x44, "Invalid public key")
+                revert(0x00, 0x64)
+            }
+
             let seed := pkSeed
             let root := pkRoot
             let sigBase := sig.offset
