@@ -1,4 +1,4 @@
-# SPHINCS- Post-Quantum Ethereum Accounts
+# SPHINCS- Post-Quantum Ethereum verifiers
 
 ---
 
